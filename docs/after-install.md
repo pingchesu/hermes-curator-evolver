@@ -28,7 +28,7 @@ After that:
 Daily autorun is intentionally narrow. It learns from observed Hermes usage and only applies low-risk managed notes to skills. By default it is deterministic and model-free. If the user explicitly chooses `--semantic-candidates` / `--rerank-candidates`, autorun uses embedding/rerank only to reorder skills that already passed the evidence threshold. For the exact algorithm, see [core-algorithm.md](core-algorithm.md).
 
 ```text
-Hermes sessions / tool calls / skill usage
+Hermes sessions / tool calls / skill usage / optional historical backfill
   → curator-evolver evidence.sqlite
   → evidence-eligible candidate set
   → optional semantic/rerank ordering if explicitly selected
@@ -59,6 +59,22 @@ hermes-curator-evolver auto-run \
 ```
 
 Autorun does **not** rewrite whole skills, delete existing content, change Hermes Agent core, or mutate pinned skills. If semantic/rerank model execution fails locally, autorun records the error and falls back to deterministic evidence ordering instead of crashing.
+
+## Historical session backfill
+
+Plugin hooks collect evidence after the plugin is enabled. If the user already has existing Hermes transcripts, import them once:
+
+```bash
+hermes-curator-evolver backfill-sessions --sessions-dir ~/.hermes/sessions --days 30 --format json
+```
+
+For a low-cost check, inspect only the newest files:
+
+```bash
+hermes-curator-evolver backfill-sessions --sessions-dir ~/.hermes/sessions --days 7 --limit 50 --format json
+```
+
+Backfill records parseable tool calls, user/assistant turns, and session completion markers into the same local SQLite evidence DB. It is duplicate-safe for repeated runs against the same session files, and it does not mutate skills by itself. Run `auto-run --format json` afterward to preview newly eligible skills.
 
 ## Health checks
 

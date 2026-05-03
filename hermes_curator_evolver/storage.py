@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS tool_events (
 );
 CREATE INDEX IF NOT EXISTS idx_tool_events_created ON tool_events(created_at);
 CREATE INDEX IF NOT EXISTS idx_tool_events_skill ON tool_events(skill_name);
+CREATE INDEX IF NOT EXISTS idx_tool_events_backfill_key ON tool_events(session_id, task_id, tool_name);
 
 CREATE TABLE IF NOT EXISTS turn_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -36,6 +37,7 @@ CREATE TABLE IF NOT EXISTS turn_events (
     assistant_preview TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_turn_events_created ON turn_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_turn_events_session ON turn_events(session_id);
 
 CREATE TABLE IF NOT EXISTS session_events (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -47,6 +49,7 @@ CREATE TABLE IF NOT EXISTS session_events (
     platform TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_session_events_created ON session_events(created_at);
+CREATE INDEX IF NOT EXISTS idx_session_events_session ON session_events(session_id);
 """
 
 MANAGE_TOOL_NAME = "skill" + "_" + "manage"
@@ -148,6 +151,7 @@ class EvidenceStore:
         task_id: str = "",
         session_id: str = "",
         duration_ms: int | None = None,
+        created_at: str | None = None,
     ) -> None:
         skill_name = _extract_skill_name(tool_name, args)
         with self.connect() as conn:
@@ -159,7 +163,7 @@ class EvidenceStore:
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    utc_now(),
+                    created_at or utc_now(),
                     session_id or "",
                     task_id or "",
                     tool_name or "",
@@ -179,6 +183,7 @@ class EvidenceStore:
         assistant_response: str,
         model: str = "",
         platform: str = "",
+        created_at: str | None = None,
     ) -> None:
         with self.connect() as conn:
             conn.execute(
@@ -189,7 +194,7 @@ class EvidenceStore:
                 ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    utc_now(),
+                    created_at or utc_now(),
                     session_id or "",
                     model or "",
                     platform or "",
@@ -206,6 +211,7 @@ class EvidenceStore:
         interrupted: bool,
         model: str = "",
         platform: str = "",
+        created_at: str | None = None,
     ) -> None:
         with self.connect() as conn:
             conn.execute(
@@ -215,7 +221,7 @@ class EvidenceStore:
                 ) VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    utc_now(),
+                    created_at or utc_now(),
                     session_id or "",
                     1 if completed else 0,
                     1 if interrupted else 0,

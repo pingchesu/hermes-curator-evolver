@@ -13,6 +13,7 @@ from .auto_evolve import (
     run_auto_evolve,
     uninstall_auto_timer,
 )
+from .backfill import backfill_sessions
 from .guarded_apply import apply_guarded_patch, rollback_guarded_patch
 from .proposals import (
     build_model_drafted_proposal,
@@ -137,6 +138,15 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
         "--format", choices=["markdown", "json"], default="markdown", help="Output format"
     )
     auto_run.set_defaults(func=handle_cli)
+
+    backfill = subs.add_parser("backfill-sessions", help="Import historical Hermes session transcripts into evidence")
+    backfill.add_argument("--sessions-dir", help="Hermes sessions directory (default: ~/.hermes/sessions)")
+    backfill.add_argument("--days", type=int, default=30, help="Only import sessions from this many days")
+    backfill.add_argument("--limit", type=int, help="Maximum number of newest session files to inspect")
+    backfill.add_argument(
+        "--format", choices=["text", "json"], default="text", help="Output format"
+    )
+    backfill.set_defaults(func=handle_cli)
 
     install_auto = subs.add_parser("install-auto", help="Install a user systemd timer for auto-run")
     install_auto.add_argument("--schedule", default="daily", help="systemd OnCalendar value or hourly/daily/weekly")
@@ -283,6 +293,27 @@ def handle_cli(args: argparse.Namespace) -> None:
             )
         )
         print(format_auto_evolve_result(result, output_format=values.get("format") or "markdown"))
+        return
+
+    if command == "backfill-sessions":
+        result = backfill_sessions(
+            sessions_dir=values.get("sessions_dir"),
+            days=_bounded_days(values.get("days"), 30),
+            limit=values.get("limit"),
+        )
+        if values.get("format") == "json":
+            print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        else:
+            print("Hermes Curator Evolver session backfill")
+            print(f"Sessions dir: {result['sessions_dir']}")
+            print(f"DB: {result['db_path']}")
+            print(f"Sessions seen: {result['sessions_seen']}")
+            print(f"Sessions imported: {result['sessions_imported']}")
+            print(f"Skipped old sessions: {result['sessions_skipped_old']}")
+            print(f"Failed files: {result['files_failed']}")
+            print(f"Tool events imported: {result['tool_events_imported']}")
+            print(f"Turn events imported: {result['turn_events_imported']}")
+            print(f"Session events imported: {result['session_events_imported']}")
         return
 
     if command == "install-auto":

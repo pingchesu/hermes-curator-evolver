@@ -6,6 +6,7 @@ This document explains the current `hermes-curator-evolver` algorithm in plain t
 
 | Path | Uses embedding? | Uses reranker? | Can write skills? | Purpose |
 | --- | --- | --- | --- | --- |
+| `backfill-sessions` | No | No | No | Import existing Hermes `session_*.json` transcripts into evidence.sqlite so prior history can inform reports/autorun. |
 | `auto-run` / `install-auto` default | No | No | Yes, only append-only low-risk blocks when explicitly enabled | Safe automatic skill improvement with deterministic evidence thresholds. |
 | `auto-run --semantic-candidates` | Yes: `Qwen/Qwen3-Embedding-0.6B` | No unless `--rerank-candidates` | Yes, but only after the same write flags | Model-assisted ordering of evidence-eligible skills. |
 | `auto-run --semantic-candidates --rerank-candidates` | Yes | Yes: `BAAI/bge-reranker-v2-m3` | Yes, but only after the same write flags | Embedding + reranker ordering of evidence-eligible skills. |
@@ -18,6 +19,24 @@ Default autorun remains model-free. Embedding/rerank autorun is now explicit opt
 
 Semantic execution is runtime-guarded for local machines: texts are truncated for candidate ranking (`HERMES_CURATOR_EVOLVER_SEMANTIC_TEXT_LIMIT`, default `512` chars), embedding batches run one at a time, and model runtime device is configurable with `HERMES_CURATOR_EVOLVER_SEMANTIC_DEVICE` (default `auto`; set `cpu` or `cuda` explicitly if needed). If local model execution fails, `auto-run` falls back to deterministic evidence ordering instead of crashing.
 
+## Historical session backfill algorithm
+
+`backfill-sessions` is implemented in `hermes_curator_evolver/backfill.py` and fills the same evidence store used by reports and autorun.
+
+```text
+1. Read newest `session_*.json` files from `--sessions-dir`.
+2. Keep files inside the `--days` lookback window; optionally stop at `--limit` newest files.
+3. For each session:
+   a. Use `session_id`, `session_start`, `model`, and `platform` from the transcript.
+   b. Import assistant `tool_calls` with matching `tool` responses when available.
+   c. Import user → assistant text turns for compact context evidence.
+   d. Import one session completion marker.
+4. Skip duplicate tool/turn/session signatures so repeated backfill runs are safe.
+5. Return counts; no skills are changed.
+```
+
+Backfill is intentionally model-free. It does not infer missing tool calls from prose; it only records evidence that is present in the Hermes session JSON structure. After backfill, `report` and `auto-run` see the imported historical evidence through normal SQLite queries.
+
 ## Current autorun algorithm
 
 `auto-run` is implemented in `hermes_curator_evolver/auto_evolve.py`.
@@ -25,6 +44,7 @@ Semantic execution is runtime-guarded for local machines: texts are truncated fo
 ### Inputs
 
 - Evidence DB: `~/.hermes/plugins/curator-evolver/data/evidence.sqlite`
+- Optional historical source: `~/.hermes/sessions/session_*.json` imported with `backfill-sessions`
 - Skills root: default `~/.hermes/skills`
 - Lookback window: default `--days 7`
 - Candidate cap: default `--max-skills 3`

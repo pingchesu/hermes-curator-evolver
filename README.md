@@ -9,7 +9,7 @@
 [![Agents](https://img.shields.io/badge/Agents-skill%20governance-2563eb?style=flat-square)](https://github.com/pingchesu/hermes-curator-evolver)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![SQLite](https://img.shields.io/badge/SQLite-local%20evidence-003B57?style=flat-square&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
-[![Safety](https://img.shields.io/badge/v0.7-semantic%20autorun%20%2B%20guarded%20apply-22c55e?style=flat-square)](#safety-model)
+[![Safety](https://img.shields.io/badge/v0.8-session%20backfill%20%2B%20CI-22c55e?style=flat-square)](#safety-model)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](./LICENSE)
 
 | 🔎 Evidence first | 🧠 Model-aware roadmap | 🛡️ Guarded apply | 🔌 Hermes plugin |
@@ -38,6 +38,10 @@ Hermes skills are powerful, but a growing skill library can become noisy: stale 
 <tr>
 <td>🗄️ <b>Store</b></td>
 <td>Keeps compact local evidence in SQLite at <code>~/.hermes/plugins/curator-evolver/data/evidence.sqlite</code>.</td>
+</tr>
+<tr>
+<td>📥 <b>Backfill</b></td>
+<td>Imports existing Hermes <code>session_*.json</code> transcripts so users with prior history can get useful evidence immediately.</td>
 </tr>
 <tr>
 <td>📊 <b>Report</b></td>
@@ -74,7 +78,23 @@ uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e ~/.hermes/plug
 
 Current Hermes plugin installs clone the repo into `~/.hermes/plugins/curator-evolver`; they do **not** install Python console scripts automatically yet, so the `uv pip install ... -e` line above is intentionally part of the quick start. Top-level `hermes <plugin>` CLI wiring may not expose general plugin commands yet; the stable command is `hermes-curator-evolver ...` after the editable CLI step.
 
-### 2. Choose your autorun mode
+### 2. Import existing session history if you already use Hermes
+
+Runtime hooks collect evidence going forward. If you already have many existing Hermes sessions, backfill them once so autorun has useful evidence immediately:
+
+```bash
+hermes-curator-evolver backfill-sessions --sessions-dir ~/.hermes/sessions --days 30 --format json
+```
+
+For a quick smoke test, cap the newest files inspected:
+
+```bash
+hermes-curator-evolver backfill-sessions --sessions-dir ~/.hermes/sessions --days 7 --limit 50 --format json
+```
+
+Backfill is duplicate-safe for repeated runs over the same session files.
+
+### 3. Choose your autorun mode
 
 | Mode | Command | Uses models? | Best for |
 | --- | --- | --- | --- |
@@ -97,6 +117,8 @@ uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e "$HOME/.hermes
 hermes-curator-evolver install-auto --schedule daily --enable --semantic-candidates --rerank-candidates
 ```
 
+### 4. Restart Hermes
+
 Then restart Hermes so plugin hooks/tools are loaded:
 
 ```bash
@@ -116,7 +138,7 @@ What gets installed:
 What daily autorun does:
 
 ```text
-observed skill usage/errors
+observed skill usage/errors + optional historical backfill
   → local evidence.sqlite
   → evidence-eligible candidate set
   → optional semantic/rerank ordering if explicitly selected
@@ -172,6 +194,7 @@ Most users do not need these for open-box autorun, but they are useful for debug
 ```bash
 hermes-curator-evolver status
 hermes-curator-evolver report --days 7
+hermes-curator-evolver backfill-sessions --sessions-dir ~/.hermes/sessions --days 30 --format json
 hermes-curator-evolver analyze --skill hermes-agent --days 30
 hermes-curator-evolver propose --skill hermes-agent --format json --output proposal.json
 hermes-curator-evolver verify --proposal-file proposal.json --skill hermes-agent
@@ -246,6 +269,7 @@ Hard defaults:
 # Evidence
 hermes-curator-evolver status
 hermes-curator-evolver report --days 7 --format json
+hermes-curator-evolver backfill-sessions --sessions-dir ~/.hermes/sessions --days 30 --format json
 hermes-curator-evolver analyze --skill hermes-agent --days 30
 
 # Proposal + verifier
@@ -281,6 +305,10 @@ hermes-curator-evolver install-auto --schedule daily --enable
 hermes-curator-evolver install-auto --schedule daily --enable --semantic-candidates --rerank-candidates
 hermes-curator-evolver uninstall-auto
 ```
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, TDD expectations, PR checklist, smoke tests, and CI behavior.
 
 ## Uninstall
 
@@ -361,6 +389,7 @@ export HERMES_CURATOR_EVOLVER_DB=/custom/path.sqlite
 - ✅ **v0.5** — explicit model execution paths: Hermes chat-model drafts, Qwen embedding candidate ranking, and bge reranking.
 - ✅ **v0.6** — plug-and-play `auto-run` + optional systemd timer for low-risk append-only skill improvements without Hermes core changes.
 - ✅ **v0.7** — explicit `--semantic-candidates` / `--rerank-candidates` for model-assisted autorun candidate ordering.
+- ✅ **v0.8** — `backfill-sessions` for existing Hermes history, `CONTRIBUTING.md`, and GitHub Actions CI.
 
 ---
 

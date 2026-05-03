@@ -67,6 +67,17 @@ def test_standalone_cli_parser_accepts_roadmap_commands():
         "--rerank-candidates",
     ])
     rerank_only_auto = parser.parse_args(["auto-run", "--skills-dir", "skills", "--rerank-candidates"])
+    backfill = parser.parse_args([
+        "backfill-sessions",
+        "--sessions-dir",
+        "sessions",
+        "--days",
+        "30",
+        "--limit",
+        "10",
+        "--format",
+        "json",
+    ])
     uninstall_auto = parser.parse_args(["uninstall-auto"])
 
     assert propose.curator_evolver_command == "propose"
@@ -90,4 +101,9 @@ def test_standalone_cli_parser_accepts_roadmap_commands():
     assert install_auto.semantic_candidates is True
     assert install_auto.rerank_candidates is True
     assert rerank_only_auto.rerank_candidates is True
+    assert backfill.curator_evolver_command == "backfill-sessions"
+    assert backfill.sessions_dir == "sessions"
+    assert backfill.days == 30
+    assert backfill.limit == 10
+    assert backfill.format == "json"
     assert uninstall_auto.curator_evolver_command == "uninstall-auto"

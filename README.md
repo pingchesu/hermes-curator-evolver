@@ -2,9 +2,15 @@
 
 # 🧬 Hermes Curator Evolver
 
-<h3>Evidence-driven skill evolution for Hermes Agent — evidence first, proposals second, guarded apply last.</h3>
+<h3>Make Hermes skills improve from real usage — with evidence, review, and rollback.</h3>
+
+<p>
+  <b>Inspired by <a href="https://github.com/AMAP-ML/SkillClaw">SkillClaw</a></b>, adapted for Hermes Agent as a local-first plugin:<br/>
+  session evidence in, safer skill updates out.
+</p>
 
 [![Hermes Agent](https://img.shields.io/badge/Hermes-Agent-ff6b6b?style=flat-square)](https://github.com/NousResearch/hermes-agent)
+[![Inspired by SkillClaw](https://img.shields.io/badge/Inspired%20by-SkillClaw-f97316?style=flat-square)](https://github.com/AMAP-ML/SkillClaw)
 [![AI Skills](https://img.shields.io/badge/AI-Skills-8A2BE2?style=flat-square)](https://github.com/pingchesu/hermes-curator-evolver)
 [![Agents](https://img.shields.io/badge/Agents-skill%20governance-2563eb?style=flat-square)](https://github.com/pingchesu/hermes-curator-evolver)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
@@ -12,9 +18,9 @@
 [![Safety](https://img.shields.io/badge/v0.8-session%20backfill%20%2B%20CI-22c55e?style=flat-square)](#safety-model)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](./LICENSE)
 
-| 🔎 Evidence first | 🧠 Model-aware roadmap | 🛡️ Guarded apply | 🔌 Hermes plugin |
+| 📚 Session evidence | 📥 Backfill today | 🧠 Optional semantic search | 🛡️ Guarded automation |
 |:-:|:-:|:-:|:-:|
-| Learn from real sessions | Use chat/embedding/rerankers only where useful | Approval + backup + verify + rollback | Tools, hooks, slash command, CLI |
+| Learn from real Hermes work | Import old `session_*.json` history | Embedding + rerank only when selected | Append-only notes, backups, rollback |
 
 </div>
 
@@ -22,11 +28,29 @@
 
 ## Why this exists
 
-Hermes skills are powerful, but a growing skill library can become noisy: stale instructions, duplicated workflows, missing caveats, and hard-to-find lessons from past sessions.
+Hermes skills are operational memory. They capture how an agent should debug, deploy, research, and communicate in a real environment. But as the library grows, that memory can decay: stale commands, duplicated workflows, missing caveats, weak trigger descriptions, and hard-won lessons trapped in old session logs.
 
-**Hermes Curator Evolver** is a conservative companion to the official `hermes curator`. It turns local evidence into reviewable proposals, then only applies reviewed content through guardrails.
+**Hermes Curator Evolver** closes that loop. It observes real Hermes usage, turns local evidence into reviewable improvements, and can safely append low-risk notes to active skills — without patching Hermes core or silently rewriting your skill library.
 
-> The default loop is still safe: report → proposal → verifier → human approval → guarded apply.
+It is especially useful if you want:
+
+- a skill library that reflects what actually happened in past sessions;
+- old Hermes sessions to become useful training signal immediately via backfill;
+- optional embedding/reranker candidate ordering for multilingual or large skill sets;
+- automation that stays inspectable: reports, proposals, verifier gates, backups, and rollback.
+
+> The default loop is intentionally conservative: evidence → candidate set → optional semantic/rerank ordering → guarded append-only apply.
+
+## Inspired by SkillClaw, made Hermes-native
+
+[SkillClaw](https://github.com/AMAP-ML/SkillClaw) showed a compelling direction: agents should not only *use* skills, they should evolve them from session trajectories. This project borrows that core idea, then adapts it to Hermes' local-first, operator-controlled workflow.
+
+| SkillClaw lesson | Hermes Curator Evolver adaptation |
+| --- | --- |
+| Session evidence should drive skill evolution. | Hermes tool calls, skill events, turns, session lifecycle events, and historical `session_*.json` backfill become local SQLite evidence. |
+| Similar skills need retrieval and ranking. | Lexical candidate search is default; Qwen embeddings and bge reranking are explicit opt-ins for candidate ordering only. |
+| Skill updates need verification. | Proposals are dry-run artifacts; mutation requires approval, exact SHA match, backup, validation hooks, and rollback manifests. |
+| Evolution should not become uncontrolled shared mutation. | The plugin stays outside Hermes core, skips pinned skills, writes append-only managed blocks, and preserves human/operator authority. |
 
 ## What it does
 
@@ -64,6 +88,15 @@ Hermes skills are powerful, but a growing skill library can become noisy: stale 
 <td>Runs a plug-in automation loop that can append low-risk evidence-backed notes to active skills without modifying Hermes core.</td>
 </tr>
 </table>
+
+## The promise
+
+| Before | After |
+| --- | --- |
+| Skills only improve when somebody remembers to edit them. | Daily autorun can append evidence-backed lessons automatically. |
+| Old sessions are buried in `~/.hermes/sessions`. | Backfill converts existing history into curator evidence. |
+| Similar skills are found by manual browsing. | Candidate search can use lexical matching by default, then optional embeddings/reranking when you choose. |
+| Automation feels risky. | Low-risk changes are append-only, pinned skills are skipped, and every write has a rollback manifest. |
 
 ## Quick start: open-box autorun
 
@@ -309,6 +342,10 @@ hermes-curator-evolver uninstall-auto
 ## Contributing
 
 Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for local setup, TDD expectations, PR checklist, smoke tests, and CI behavior.
+
+## Credits and inspiration
+
+**Inspired by [SkillClaw](https://github.com/AMAP-ML/SkillClaw)** — especially the idea that agent skills should evolve from real session evidence, not only from hand-written maintenance. Hermes Curator Evolver keeps that inspiration, but applies it through Hermes-native plugin hooks, local SQLite evidence, explicit model opt-ins, and conservative guarded writes.
 
 ## Uninstall
 

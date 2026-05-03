@@ -56,6 +56,10 @@ def test_standalone_cli_parser_accepts_roadmap_commands():
         "--rerank-candidates",
         "--apply-low-risk",
         "--approve-auto-apply",
+        "--allow-auto-apply-skill",
+        "hermes-agent",
+        "--block-auto-apply-skill",
+        "github-*",
         "--format",
         "json",
     ])
@@ -65,6 +69,8 @@ def test_standalone_cli_parser_accepts_roadmap_commands():
         "daily",
         "--semantic-candidates",
         "--rerank-candidates",
+        "--block-auto-apply-skill",
+        "github-*",
     ])
     rerank_only_auto = parser.parse_args(["auto-run", "--skills-dir", "skills", "--rerank-candidates"])
     backfill = parser.parse_args([
@@ -96,10 +102,15 @@ def test_standalone_cli_parser_accepts_roadmap_commands():
     assert auto_run.rerank_candidates is True
     assert auto_run.apply_low_risk is True
     assert auto_run.approve_auto_apply is True
+    assert auto_run.protect_core_skills is True
+    assert auto_run.allow_auto_apply_skill == ["hermes-agent"]
+    assert auto_run.block_auto_apply_skill == ["github-*"]
     assert install_auto.curator_evolver_command == "install-auto"
     assert install_auto.schedule == "daily"
     assert install_auto.semantic_candidates is True
     assert install_auto.rerank_candidates is True
+    assert install_auto.protect_core_skills is True
+    assert install_auto.block_auto_apply_skill == ["github-*"]
     assert rerank_only_auto.rerank_candidates is True
     assert backfill.curator_evolver_command == "backfill-sessions"
     assert backfill.sessions_dir == "sessions"

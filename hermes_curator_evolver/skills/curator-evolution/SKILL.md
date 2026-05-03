@@ -22,7 +22,8 @@ Hermes Curator Evolver starts from evidence and keeps mutation guarded. Reports 
 8. `auto-run --semantic-candidates` and `--rerank-candidates` are explicit opt-ins that only reorder evidence-eligible candidates.
 9. Guarded apply requires approval, backup, verifier/validation pass, and rollback.
 10. `auto-run` mutates only when both `--apply-low-risk` and `--approve-auto-apply` are set.
-11. `install-auto --enable` creates a user systemd timer; remove it with `uninstall-auto` before plugin uninstall.
+11. Even with write flags, unattended auto-apply skips core Hermes/workflow skills by default (`hermes-*`, `gsd-*`, `github-*`, `mcp-*`, coding-agent skills) unless explicitly allowlisted.
+12. `install-auto --enable` creates a user systemd timer; remove it with `uninstall-auto` before plugin uninstall.
 
 ## Safe Next Actions
 
@@ -33,7 +34,7 @@ Hermes Curator Evolver starts from evidence and keeps mutation guarded. Reports 
 - Use `hermes-curator-evolver candidates --query <text> --skills-dir <dir>` for dependency-free lexical candidate search.
 - Use `hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --format json` to preview automatic improvements.
 - Use `hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --semantic-candidates --rerank-candidates --format json` to preview model-assisted candidate ordering.
-- Use `hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply` for actual low-risk append-only improvement.
+- Use `hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply` for actual low-risk append-only improvement; core skills are skipped by default.
 - Use `hermes-curator-evolver install-auto --schedule daily --enable` for plug-in daily automation without Hermes core changes.
 - Use `hermes-curator-evolver install-auto --schedule daily --enable --semantic-candidates --rerank-candidates` only when the user explicitly wants model-assisted timer candidate ordering.
 - Use `hermes-curator-evolver uninstall-auto` to remove the optional timer.

@@ -8,6 +8,7 @@ hash/backup/verification guardrails.
 
 from __future__ import annotations
 
+import fnmatch
 import json
 import os
 import re
@@ -28,6 +29,26 @@ _FRONTMATTER_NAME_RE = re.compile(r"^---\s*\n(?P<body>.*?)\n---\s*\n", re.DOTALL
 _NAME_RE = re.compile(r"^name:\s*[\"']?(?P<name>[^\"'\n]+)[\"']?\s*$", re.MULTILINE)
 _PIN_RE = re.compile(r"^(?:pin|pinned):\s*(?:true|yes|1)\s*$", re.IGNORECASE | re.MULTILINE)
 
+# Skills in these families steer Hermes itself, coding workflow, skill loading,
+# or repo/PR operations. They may still be analyzed and proposed, but unattended
+# auto-apply skips them unless an operator explicitly allowlists a skill/pattern.
+_DEFAULT_CORE_AUTO_APPLY_PROTECTED_PATTERNS: tuple[str, ...] = (
+    "hermes-agent",
+    "hermes-*",
+    "gsd-*",
+    "github-*",
+    "mcp-*",
+    "native-mcp",
+    "claude-code",
+    "codex",
+    "opencode",
+    "subagent-*",
+    "systematic-debugging",
+    "test-driven-development",
+    "debugging-hermes-*",
+    "requesting-code-review",
+)
+
 
 @dataclass(frozen=True)
 class AutoEvolveConfig:
@@ -47,6 +68,9 @@ class AutoEvolveConfig:
     rerank_candidates: bool = False
     embedding_backend: Any | None = None
     reranker_backend: Any | None = None
+    protect_core_skills: bool = True
+    auto_apply_allowlist: tuple[str, ...] = ()
+    auto_apply_blocklist: tuple[str, ...] = ()
 
 
 def _default_skills_dir() -> Path:
@@ -73,6 +97,43 @@ def _skill_name_from_text(text: str, fallback: str) -> str:
 def _skill_is_pinned(text: str) -> bool:
     match = _FRONTMATTER_NAME_RE.match(text)
     return bool(match and _PIN_RE.search(match.group("body")))
+
+
+def _normalize_patterns(patterns: tuple[str, ...] | list[str] | None) -> tuple[str, ...]:
+    return tuple(str(pattern).strip() for pattern in (patterns or ()) if str(pattern).strip())
+
+
+def _skill_matches_any_pattern(skill_name: str, patterns: tuple[str, ...] | list[str] | None) -> bool:
+    normalized_name = skill_name.casefold()
+    for pattern in _normalize_patterns(patterns):
+        if fnmatch.fnmatchcase(normalized_name, pattern.casefold()):
+            return True
+    return False
+
+
+def _auto_apply_skip_reason(*, skill_name: str, cfg: AutoEvolveConfig) -> str | None:
+    """Return why unattended apply should not write this skill, if blocked."""
+
+    allowlist = _normalize_patterns(cfg.auto_apply_allowlist)
+    blocklist = _normalize_patterns(cfg.auto_apply_blocklist)
+    if _skill_matches_any_pattern(skill_name, blocklist):
+        return "auto-apply-blocklisted"
+    allowlisted = _skill_matches_any_pattern(skill_name, allowlist)
+    if allowlist and not allowlisted:
+        return "auto-apply-not-allowlisted"
+    if (
+        cfg.protect_core_skills
+        and _skill_matches_any_pattern(skill_name, _DEFAULT_CORE_AUTO_APPLY_PROTECTED_PATTERNS)
+        and not allowlisted
+    ):
+        return "core-skill-auto-apply-protected"
+    return None
+
+
+def protected_core_auto_apply_patterns() -> tuple[str, ...]:
+    """Return default core-skill patterns protected from unattended writes."""
+
+    return _DEFAULT_CORE_AUTO_APPLY_PROTECTED_PATTERNS
 
 
 def discover_skill_files(skills_dir: str | Path) -> dict[str, Path]:
@@ -343,6 +404,13 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
             candidate["reason"] = "pinned-skill"
             candidates.append(candidate)
             continue
+        if cfg.apply_low_risk and cfg.approve_auto_apply:
+            skip_reason = _auto_apply_skip_reason(skill_name=name, cfg=cfg)
+            if skip_reason:
+                candidate["status"] = "skipped"
+                candidate["reason"] = skip_reason
+                candidates.append(candidate)
+                continue
         skill_report = build_report(store, days=days, skill=name)
         skill_summary = skill_report.get("summary") or {}
         evidence_rows = skill_report.get("skill_evidence") or []
@@ -394,6 +462,11 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
             "core_modifications": False,
             "writes_require_apply_low_risk": True,
             "writes_require_auto_approval": True,
+            "protect_core_skills": bool(cfg.protect_core_skills),
+            "auto_apply_policy": "non-core-skills-only-by-default",
+            "protected_core_patterns": list(_DEFAULT_CORE_AUTO_APPLY_PROTECTED_PATTERNS),
+            "auto_apply_allowlist": list(_normalize_patterns(cfg.auto_apply_allowlist)),
+            "auto_apply_blocklist": list(_normalize_patterns(cfg.auto_apply_blocklist)),
             "mutation_policy": "append-only managed block + guarded apply backup/rollback",
         },
         "config": {
@@ -405,6 +478,9 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
             "min_evidence": min_evidence,
             "semantic_candidates": bool(cfg.semantic_candidates),
             "rerank_candidates": bool(cfg.rerank_candidates),
+            "protect_core_skills": bool(cfg.protect_core_skills),
+            "auto_apply_allowlist": list(_normalize_patterns(cfg.auto_apply_allowlist)),
+            "auto_apply_blocklist": list(_normalize_patterns(cfg.auto_apply_blocklist)),
         },
         "selection": selection,
         "summary": {
@@ -428,6 +504,9 @@ def install_auto_timer(
     enable: bool = False,
     semantic_candidates: bool = False,
     rerank_candidates: bool = False,
+    protect_core_skills: bool = True,
+    auto_apply_allowlist: tuple[str, ...] = (),
+    auto_apply_blocklist: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """Install a user systemd timer for automatic evolution.
 
@@ -457,6 +536,14 @@ def install_auto_timer(
         args.append("--rerank-candidates")
     if apply_low_risk:
         args.extend(["--apply-low-risk", "--approve-auto-apply"])
+        if protect_core_skills:
+            args.append("--protect-core-skills")
+        else:
+            args.append("--no-protect-core-skills")
+        for pattern in _normalize_patterns(auto_apply_allowlist):
+            args.extend(["--allow-auto-apply-skill", pattern])
+        for pattern in _normalize_patterns(auto_apply_blocklist):
+            args.extend(["--block-auto-apply-skill", pattern])
     command = " ".join(args)
     service_path.write_text(
         "\n".join(
@@ -497,6 +584,10 @@ def install_auto_timer(
         "schedule": on_calendar,
         "semantic_candidates": bool(semantic_candidates or rerank_candidates),
         "rerank_candidates": bool(rerank_candidates),
+        "protect_core_skills": bool(protect_core_skills),
+        "auto_apply_policy": "non-core-skills-only-by-default" if apply_low_risk else "dry-run-only",
+        "auto_apply_allowlist": list(_normalize_patterns(auto_apply_allowlist)),
+        "auto_apply_blocklist": list(_normalize_patterns(auto_apply_blocklist)),
         "command": command,
     }
     if enable:
@@ -557,8 +648,10 @@ def format_auto_evolve_result(result: dict[str, Any], *, output_format: str) -> 
         "",
     ]
     for candidate in result.get("candidates") or []:
+        reason = candidate.get("reason")
+        reason_text = f" reason={reason}" if reason else ""
         lines.append(
-            f"- `{candidate.get('skill_name')}` — {candidate.get('status')} ({candidate.get('risk')})"
+            f"- `{candidate.get('skill_name')}` — {candidate.get('status')} ({candidate.get('risk')}){reason_text}"
         )
         if candidate.get("apply_result"):
             lines.append(f"  - apply: {candidate['apply_result'].get('reason')}")

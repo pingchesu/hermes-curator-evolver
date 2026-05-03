@@ -12,6 +12,7 @@ flowchart LR
     R[reports\nmarkdown / JSON]
     C[candidate search\nlexical default + optional semantic/rerank]
     Proposal[dry-run proposal]
+    B[bootstrap CLI\nbackfill + timer setup]
     Auto[auto-run\ndeterministic or semantic/rerank candidate ordering]
     V[verifier gate]
     Human[human approval]
@@ -20,6 +21,8 @@ flowchart LR
     H -->|runtime evidence| P
     P -->|compact events| DB
     DB --> R
+    B --> DB
+    B --> Auto
     R --> Proposal
     R --> C
     C --> Proposal
@@ -42,6 +45,7 @@ The safety rule is simple: everything before `Apply` is non-mutating; `Apply` re
 | Reports | Shows which skills/tools produced useful or problematic evidence. |
 | Candidate search | Finds likely related skills with lexical search by default; semantic models are opt-in only. |
 | Proposal | Produces dry-run review artifacts grounded in evidence. |
+| Bootstrap | One-command setup that backfills recent sessions and installs/enables the daily timer. |
 | Auto-run | Selects active evidence-backed skills with deterministic evidence thresholds by default. With `--semantic-candidates --rerank-candidates`, it can use embedding/rerank to reorder only evidence-eligible skills before preparing low-risk managed append-only notes. Unattended writes are local-agent-created-only by provenance. |
 | Verifier | Blocks ungrounded, mutating, or destructive proposals. |
 | Guarded apply | Writes reviewed content only after approval/hash/backup/verify gates. |
@@ -59,6 +63,7 @@ The safety rule is simple: everything before `Apply` is non-mutating; `Apply` re
 | v0.6 | None by default | Automatic low-risk append-only skill evolution from evidence. | Optional `auto-run` / `install-auto`; no Hermes core modification. |
 | v0.7 | `Qwen/Qwen3-Embedding-0.6B` + `BAAI/bge-reranker-v2-m3` | Optional model-assisted autorun candidate ordering. | Explicit `--semantic-candidates --rerank-candidates`; models only reorder evidence-eligible candidates. |
 | v0.9 | None | Provenance-safe auto-apply source classification. | Writes only local agent-created skills; skips bundled/official, hub, plugin, external, pinned, and unknown sources. |
+| v0.10 | None by default | One-command `bootstrap` setup and compressed quick start. | `bootstrap` backfills sessions and installs/enables the timer; `bootstrap --semantic` is explicit model opt-in. |
 
 Notes:
 
@@ -108,6 +113,8 @@ Hard rules:
 ## Current commands
 
 ```bash
+hermes-curator-evolver bootstrap
+hermes-curator-evolver bootstrap --semantic
 hermes-curator-evolver status
 hermes-curator-evolver report --days 7 --format json
 hermes-curator-evolver propose --skill hermes-agent --format json --output proposal.json

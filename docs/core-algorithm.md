@@ -6,6 +6,7 @@ This document explains the current `hermes-curator-evolver` algorithm in plain t
 
 | Path | Uses embedding? | Uses reranker? | Can write skills? | Purpose |
 | --- | --- | --- | --- | --- |
+| `bootstrap` | No by default; yes with `--semantic` | No by default; yes with `--semantic` | Installs the timer; the timer can write only low-risk local-agent-created skill notes | One-command setup: backfill sessions + install/enable autorun. |
 | `backfill-sessions` | No | No | No | Import existing Hermes `session_*.json` transcripts into evidence.sqlite so prior history can inform reports/autorun. |
 | `auto-run` / `install-auto` default | No | No | Yes, only append-only low-risk blocks for local agent-created skills when explicitly enabled | Safe automatic skill improvement with deterministic evidence thresholds and provenance write protection. |
 | `auto-run --semantic-candidates` | Yes: `Qwen/Qwen3-Embedding-0.6B` | No unless `--rerank-candidates` | Yes, but only after the same write flags and local-agent-created source gate | Model-assisted ordering of evidence-eligible skills. |
@@ -47,6 +48,7 @@ Backfill is intentionally model-free. It does not infer missing tool calls from 
 - Optional historical source: `~/.hermes/sessions/session_*.json` imported with `backfill-sessions`
 - Skills root: default `~/.hermes/skills`
 - Lookback window: default `--days 7`
+- Optional bootstrap wrapper: `bootstrap`, `bootstrap --semantic`
 - Candidate cap: default `--max-skills 3`
 - Minimum evidence threshold: default `--min-evidence 2`
 - Optional candidate ordering: `--semantic-candidates`, `--rerank-candidates`

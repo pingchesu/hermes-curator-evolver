@@ -21,6 +21,11 @@ from typing import Any
 from .guarded_apply import apply_guarded_patch, sha256_file
 from .reports import build_report
 from .semantic import find_skill_candidates
+from .skill_sources import (
+    SOURCE_LOCAL_AGENT_CREATED,
+    build_skill_source_context,
+    classify_skill_source,
+)
 from .storage import EvidenceStore
 
 _START = "<!-- curator-evolver:auto:start -->"
@@ -144,7 +149,7 @@ def discover_skill_files(skills_dir: str | Path) -> dict[str, Path]:
         return {}
     discovered: dict[str, Path] = {}
     for skill_file in sorted(root.rglob("SKILL.md")):
-        if "/.archive/" in str(skill_file) or "/.curator_backups/" in str(skill_file):
+        if any(part in {".archive", ".curator_backups", ".hub"} for part in skill_file.parts):
             continue
         try:
             text = skill_file.read_text(encoding="utf-8")
@@ -370,6 +375,7 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
     store = EvidenceStore(cfg.db_path)
     report = build_report(store, days=days)
     skill_files = discover_skill_files(skills_dir)
+    source_context = build_skill_source_context(skills_dir)
     names, selection_metadata, selection = _select_candidate_skill_names(
         report=report,
         skills_dir=skills_dir,
@@ -386,12 +392,19 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
 
     for name in names:
         skill_file = skill_files.get(name)
+        source_info = (
+            classify_skill_source(skill_name=name, skill_file=skill_file, context=source_context)
+            if skill_file
+            else None
+        )
         candidate: dict[str, Any] = {
             "skill_name": name,
             "risk": "low",
             "mutation_policy": "append-only-managed-block",
             "selection": selection_metadata.get(name, {"source": "unknown", "reasons": []}),
             "target_path": str(skill_file) if skill_file else None,
+            "source": source_info.source if source_info else "missing",
+            "source_writable": bool(source_info.writable) if source_info else False,
         }
         if not skill_file:
             candidate["status"] = "skipped"
@@ -405,6 +418,11 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
             candidates.append(candidate)
             continue
         if cfg.apply_low_risk and cfg.approve_auto_apply:
+            if source_info and source_info.source != SOURCE_LOCAL_AGENT_CREATED:
+                candidate["status"] = "skipped"
+                candidate["reason"] = "source-not-agent-created"
+                candidates.append(candidate)
+                continue
             skip_reason = _auto_apply_skip_reason(skill_name=name, cfg=cfg)
             if skip_reason:
                 candidate["status"] = "skipped"
@@ -463,7 +481,8 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
             "writes_require_apply_low_risk": True,
             "writes_require_auto_approval": True,
             "protect_core_skills": bool(cfg.protect_core_skills),
-            "auto_apply_policy": "non-core-skills-only-by-default",
+            "auto_apply_policy": "local-agent-created-skills-only",
+            "auto_apply_source_policy": "bundled/hub/external/plugin/unknown sources are skipped",
             "protected_core_patterns": list(_DEFAULT_CORE_AUTO_APPLY_PROTECTED_PATTERNS),
             "auto_apply_allowlist": list(_normalize_patterns(cfg.auto_apply_allowlist)),
             "auto_apply_blocklist": list(_normalize_patterns(cfg.auto_apply_blocklist)),
@@ -473,6 +492,11 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
             "db_path": str(store.db_path),
             "skills_dir": str(skills_dir),
             "backup_dir": str(backup_dir),
+            "hermes_home": str(source_context.hermes_home),
+            "local_skills_dir": str(source_context.local_skills_dir),
+            "external_dirs": [str(path) for path in source_context.external_dirs],
+            "bundled_skill_count": len(source_context.bundled_names),
+            "hub_installed_skill_count": len(source_context.hub_installed_names),
             "days": days,
             "max_skills": max_skills,
             "min_evidence": min_evidence,
@@ -585,7 +609,7 @@ def install_auto_timer(
         "semantic_candidates": bool(semantic_candidates or rerank_candidates),
         "rerank_candidates": bool(rerank_candidates),
         "protect_core_skills": bool(protect_core_skills),
-        "auto_apply_policy": "non-core-skills-only-by-default" if apply_low_risk else "dry-run-only",
+        "auto_apply_policy": "local-agent-created-skills-only" if apply_low_risk else "dry-run-only",
         "auto_apply_allowlist": list(_normalize_patterns(auto_apply_allowlist)),
         "auto_apply_blocklist": list(_normalize_patterns(auto_apply_blocklist)),
         "command": command,

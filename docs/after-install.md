@@ -25,14 +25,14 @@ After that:
 
 ## What autorun actually does
 
-Daily autorun is intentionally narrow. It learns from observed Hermes usage and only applies low-risk managed notes to non-core skills. Core Hermes/workflow skills are analyzed and can appear in dry-run output, but unattended writes skip them by default. By default it is deterministic and model-free. If the user explicitly chooses `--semantic-candidates` / `--rerank-candidates`, autorun uses embedding/rerank only to reorder skills that already passed the evidence threshold. For the exact algorithm, see [core-algorithm.md](core-algorithm.md).
+Daily autorun is intentionally narrow. It learns from observed Hermes usage and only applies low-risk managed notes to local agent-created skills. Official/bundled skills, hub-installed skills, plugin-provided skills, and skills loaded from `skills.external_dirs` are analyzed and can appear in dry-run output, but unattended writes skip them. By default it is deterministic and model-free. If the user explicitly chooses `--semantic-candidates` / `--rerank-candidates`, autorun uses embedding/rerank only to reorder skills that already passed the evidence threshold. For the exact algorithm, see [core-algorithm.md](core-algorithm.md).
 
 ```text
 Hermes sessions / tool calls / skill usage / optional historical backfill
   → curator-evolver evidence.sqlite
   → evidence-eligible candidate set
   → optional semantic/rerank ordering if explicitly selected
-  → non-core auto-apply policy gate
+  → local-agent-created provenance policy gate
   → append-only managed SKILL.md evidence note
   → backup + rollback manifest
 ```
@@ -61,7 +61,7 @@ hermes-curator-evolver auto-run \
   --protect-core-skills
 ```
 
-Autorun does **not** rewrite whole skills, delete existing content, change Hermes Agent core, mutate pinned skills, or auto-apply to core Hermes/workflow skills unless explicitly allowlisted. If semantic/rerank model execution fails locally, autorun records the error and falls back to deterministic evidence ordering instead of crashing.
+Autorun does **not** rewrite whole skills, delete existing content, change Hermes Agent core, mutate pinned skills, or auto-apply to official/bundled, hub-installed, plugin-provided, `external_dirs`, or unknown-source skills. `--allow-auto-apply-skill` can relax the extra core-name guard only inside the local agent-created boundary; it does not override provenance. If semantic/rerank model execution fails locally, autorun records the error and falls back to deterministic evidence ordering instead of crashing.
 
 ## Historical session backfill
 
@@ -156,7 +156,7 @@ hermes-curator-evolver install-auto --schedule daily --enable --semantic-candida
 Important model boundaries:
 
 - Models help find or draft candidate improvements; they do not get unilateral write access.
-- `auto-run` low-risk writes are deterministic, append-only, and non-core-only by default.
+- `auto-run` low-risk writes are deterministic, append-only, and local-agent-created-only by default.
 - In semantic/rerank autorun, model scores only reorder candidates that already passed the evidence threshold.
 - Semantic models are never downloaded unless the user explicitly asks for semantic execution.
 - Semantic ranking truncates SKILL.md text to `HERMES_CURATOR_EVOLVER_SEMANTIC_TEXT_LIMIT` characters, default `512`, and uses `batch_size=1` to avoid local GPU/CPU memory spikes.

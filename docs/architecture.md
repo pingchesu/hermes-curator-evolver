@@ -42,7 +42,7 @@ The safety rule is simple: everything before `Apply` is non-mutating; `Apply` re
 | Reports | Shows which skills/tools produced useful or problematic evidence. |
 | Candidate search | Finds likely related skills with lexical search by default; semantic models are opt-in only. |
 | Proposal | Produces dry-run review artifacts grounded in evidence. |
-| Auto-run | Selects active evidence-backed skills with deterministic evidence thresholds by default. With `--semantic-candidates --rerank-candidates`, it can use embedding/rerank to reorder only evidence-eligible skills before preparing low-risk managed append-only notes. Unattended writes are non-core-only by default. |
+| Auto-run | Selects active evidence-backed skills with deterministic evidence thresholds by default. With `--semantic-candidates --rerank-candidates`, it can use embedding/rerank to reorder only evidence-eligible skills before preparing low-risk managed append-only notes. Unattended writes are local-agent-created-only by provenance. |
 | Verifier | Blocks ungrounded, mutating, or destructive proposals. |
 | Guarded apply | Writes reviewed content only after approval/hash/backup/verify gates. |
 
@@ -58,6 +58,7 @@ The safety rule is simple: everything before `Apply` is non-mutating; `Apply` re
 | v0.4 | Verifier + local validation command | Guarding reviewed content before it is applied. | Requires approval, backup, verification, and rollback path. |
 | v0.6 | None by default | Automatic low-risk append-only skill evolution from evidence. | Optional `auto-run` / `install-auto`; no Hermes core modification. |
 | v0.7 | `Qwen/Qwen3-Embedding-0.6B` + `BAAI/bge-reranker-v2-m3` | Optional model-assisted autorun candidate ordering. | Explicit `--semantic-candidates --rerank-candidates`; models only reorder evidence-eligible candidates. |
+| v0.9 | None | Provenance-safe auto-apply source classification. | Writes only local agent-created skills; skips bundled/official, hub, plugin, external, pinned, and unknown sources. |
 
 Notes:
 
@@ -101,7 +102,7 @@ Hard rules:
 - Guarded apply creates a backup and manifest before writing.
 - Failed validation restores the backup automatically.
 - Auto-run mutates only when both `--apply-low-risk` and `--approve-auto-apply` are provided.
-- Even then, auto-run skips core Hermes/workflow skills by default; use `--allow-auto-apply-skill <pattern>` only after explicit review.
+- Even then, auto-run writes only local agent-created skills. Bundled/official, hub-installed, plugin-provided, `skills.external_dirs`, pinned, and unknown sources are skipped before any name allowlist/blocklist is considered. `--allow-auto-apply-skill <pattern>` only relaxes the extra core-name guard inside that source boundary.
 - Auto-run preserves existing skill text and writes only a managed `curator-evolver:auto` block.
 
 ## Current commands

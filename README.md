@@ -15,7 +15,7 @@
 [![Agents](https://img.shields.io/badge/Agents-skill%20governance-2563eb?style=flat-square)](https://github.com/pingchesu/hermes-curator-evolver)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![SQLite](https://img.shields.io/badge/SQLite-local%20evidence-003B57?style=flat-square&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
-[![Safety](https://img.shields.io/badge/v0.8-session%20backfill%20%2B%20CI-22c55e?style=flat-square)](#safety-model)
+[![Safety](https://img.shields.io/badge/v0.9-provenance--safe%20autorun-22c55e?style=flat-square)](#safety-model)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](./LICENSE)
 
 | 📚 Session evidence | 📥 Backfill today | 🧠 Optional semantic search | 🛡️ Guarded automation |
@@ -51,7 +51,7 @@ hermes-curator-evolver install-auto --schedule daily --enable
 hermes gateway restart
 ```
 
-That installs the plugin, imports your recent Hermes history, and enables a daily user-level timer that appends low-risk evidence notes to **non-core** skills. Core Hermes/workflow skills are still analyzed, but skipped for unattended writes by default.
+That installs the plugin, imports your recent Hermes history, and enables a daily user-level timer that appends low-risk evidence notes only to **local agent-created** skills. Official/bundled skills, hub-installed skills, plugin-provided skills, and anything from `skills.external_dirs` are still analyzed, but skipped for unattended writes.
 
 Want smarter candidate ordering for larger or multilingual skill libraries?
 
@@ -60,7 +60,7 @@ uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e "$HOME/.hermes
 hermes-curator-evolver install-auto --schedule daily --enable --semantic-candidates --rerank-candidates
 ```
 
-Semantic mode is still conservative: embeddings/rerankers only reorder candidates that already passed evidence thresholds. They do not write content by themselves, and core-skill auto-apply protection still applies.
+Semantic mode is still conservative: embeddings/rerankers only reorder candidates that already passed evidence thresholds. They do not write content by themselves, and the provenance gate still allows unattended writes only to local agent-created skills.
 
 Useful one-liners:
 
@@ -84,7 +84,7 @@ Notes:
 | **I want it to feel automatic** | `install-auto --enable` creates a daily autorun timer. No daily command to remember. |
 | **I have lots of old sessions** | `backfill-sessions` turns existing `session_*.json` files into usable evidence immediately. |
 | **I want better matching** | Optional Qwen embeddings + bge reranking can improve candidate ordering. |
-| **I do not want scary rewrites** | Autorun writes append-only managed notes, skips pinned skills, skips core Hermes/workflow skills by default, and records backup/rollback manifests. |
+| **I do not want scary rewrites** | Autorun writes append-only managed notes, skips pinned skills, skips official/bundled, hub-installed, plugin-provided, and `external_dirs` skills, and records backup/rollback manifests. |
 
 ## Why this exists
 
@@ -101,7 +101,7 @@ Hermes skills are operational memory. They capture how an agent should debug, de
 | Learn from sessions. | Runtime hooks + historical backfill feed local SQLite evidence. |
 | Retrieve similar skills before editing. | Lexical search by default; optional Qwen embeddings + bge reranking. |
 | Verify skill changes. | Dry-run proposals, verifier gates, exact SHA match, backups, rollback. |
-| Avoid uncontrolled mutation. | No Hermes core patches, pinned skills are skipped, core workflow skills are protected from unattended writes, autorun is append-only. |
+| Avoid uncontrolled mutation. | No Hermes core patches, pinned skills are skipped, official/hub/external/plugin skills are protected from unattended writes, autorun is append-only. |
 
 ## Architecture
 
@@ -132,6 +132,7 @@ flowchart LR
 | v0.4 | Verifier + local validation command | Guard final reviewed content before apply. | Requires approval, backup, verification, rollback. |
 | v0.6 | None by default | Automatic low-risk append-only skill updates from observed evidence. | Optional `install-auto`; no Hermes core modification. |
 | v0.7 | `Qwen/Qwen3-Embedding-0.6B` + `BAAI/bge-reranker-v2-m3` | Optional model-assisted autorun candidate ordering. | Explicit `--semantic-candidates --rerank-candidates`; models only reorder evidence-eligible candidates. |
+| v0.9 | None | Provenance-safe unattended auto-apply. | Writes only local agent-created skills; skips bundled, hub, plugin, external, pinned, and unknown sources. |
 
 ## Safety model
 
@@ -156,7 +157,7 @@ Hard defaults:
 - ✅ Apply creates a backup before writing.
 - ✅ Failed validation auto-restores the backup.
 - ✅ `auto-run` writes only managed append-only blocks and still requires both `--apply-low-risk` and `--approve-auto-apply` before mutation.
-- ✅ Even with both write flags, unattended auto-apply skips core Hermes/workflow skills by default (`hermes-*`, `gsd-*`, `github-*`, `mcp-*`, coding-agent skills, etc.).
+- ✅ Even with both write flags, unattended auto-apply writes only local agent-created skills. Official/bundled skills (`.bundled_manifest`), hub-installed skills (`.hub/lock.json`), plugin-provided skills, `skills.external_dirs`, pinned skills, and unknown sources are skipped.
 - ✅ `--semantic-candidates` / `--rerank-candidates` are explicit opt-ins and only reorder skills that already passed the evidence threshold.
 
 ## CLI reference
@@ -198,7 +199,7 @@ hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --semantic-candida
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --semantic-candidates --rerank-candidates --apply-low-risk --approve-auto-apply
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply --block-auto-apply-skill 'github-*'
-hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply --allow-auto-apply-skill store-playbook
+hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply --allow-auto-apply-skill store-playbook  # only within local agent-created source boundary
 hermes-curator-evolver install-auto --schedule daily --enable
 hermes-curator-evolver install-auto --schedule daily --enable --semantic-candidates --rerank-candidates
 hermes-curator-evolver uninstall-auto
@@ -292,6 +293,7 @@ export HERMES_CURATOR_EVOLVER_DB=/custom/path.sqlite
 - ✅ **v0.6** — plug-and-play `auto-run` + optional systemd timer for low-risk append-only skill improvements without Hermes core changes.
 - ✅ **v0.7** — explicit `--semantic-candidates` / `--rerank-candidates` for model-assisted autorun candidate ordering.
 - ✅ **v0.8** — `backfill-sessions` for existing Hermes history, `CONTRIBUTING.md`, and GitHub Actions CI.
+- ✅ **v0.9** — provenance-safe autorun: only local agent-created skills can be auto-applied; bundled, hub, plugin, external, pinned, and unknown sources are skipped.
 
 ---
 

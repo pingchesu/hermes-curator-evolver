@@ -329,7 +329,7 @@ def test_auto_evolve_auto_apply_skips_core_skills_by_default_but_applies_non_cor
 
     by_name = {candidate["skill_name"]: candidate for candidate in result["candidates"]}
     assert result["safety"]["protect_core_skills"] is True
-    assert result["safety"]["auto_apply_policy"] == "non-core-skills-only-by-default"
+    assert result["safety"]["auto_apply_policy"] == "local-agent-created-skills-only"
     assert by_name["hermes-agent"]["status"] == "skipped"
     assert by_name["hermes-agent"]["reason"] == "core-skill-auto-apply-protected"
     assert "apply_result" not in by_name["hermes-agent"]
@@ -400,6 +400,126 @@ def test_auto_evolve_allowlist_can_explicitly_permit_one_core_skill(tmp_path):
     assert result["candidates"][0]["status"] == "applied"
     assert result["candidates"][0]["apply_result"]["applied"] is True
     assert "Auto-curated evidence notes" in skill_file.read_text(encoding="utf-8")
+
+
+def test_auto_evolve_skips_bundled_manifest_skill_even_if_allowlisted(tmp_path):
+    db = tmp_path / "evidence.sqlite"
+    store = EvidenceStore(db)
+    hermes_home = tmp_path / ".hermes"
+    skills = hermes_home / "skills"
+    backups = tmp_path / "backups"
+    skill_file = _write_skill(skills, "spotify", "Official music skill.")
+    (skills / ".bundled_manifest").write_text("spotify:abc123\n", encoding="utf-8")
+    original_hash = sha256_file(skill_file)
+    store.record_tool_call(
+        tool_name="skill_view",
+        args={"name": "spotify"},
+        result={"success": True},
+        session_id="s1",
+    )
+
+    result = run_auto_evolve(
+        AutoEvolveConfig(
+            db_path=db,
+            skills_dir=skills,
+            backup_dir=backups,
+            days=30,
+            min_evidence=1,
+            apply_low_risk=True,
+            approve_auto_apply=True,
+            auto_apply_allowlist=("spotify",),
+        )
+    )
+
+    candidate = result["candidates"][0]
+    assert candidate["source"] == "bundled"
+    assert candidate["status"] == "skipped"
+    assert candidate["reason"] == "source-not-agent-created"
+    assert "apply_result" not in candidate
+    assert result["summary"]["applied"] == 0
+    assert sha256_file(skill_file) == original_hash
+
+
+def test_auto_evolve_skips_hub_installed_skill(tmp_path):
+    db = tmp_path / "evidence.sqlite"
+    store = EvidenceStore(db)
+    hermes_home = tmp_path / ".hermes"
+    skills = hermes_home / "skills"
+    backups = tmp_path / "backups"
+    skill_file = _write_skill(skills, "community-skill", "Hub installed skill.")
+    hub_dir = skills / ".hub"
+    hub_dir.mkdir(parents=True)
+    (hub_dir / "lock.json").write_text(
+        json.dumps({"version": 1, "installed": {"community-skill": {"source": "github"}}}),
+        encoding="utf-8",
+    )
+    original_hash = sha256_file(skill_file)
+    store.record_tool_call(
+        tool_name="skill_view",
+        args={"name": "community-skill"},
+        result={"success": True},
+        session_id="s1",
+    )
+
+    result = run_auto_evolve(
+        AutoEvolveConfig(
+            db_path=db,
+            skills_dir=skills,
+            backup_dir=backups,
+            days=30,
+            min_evidence=1,
+            apply_low_risk=True,
+            approve_auto_apply=True,
+        )
+    )
+
+    candidate = result["candidates"][0]
+    assert candidate["source"] == "hub-installed"
+    assert candidate["status"] == "skipped"
+    assert candidate["reason"] == "source-not-agent-created"
+    assert result["summary"]["applied"] == 0
+    assert sha256_file(skill_file) == original_hash
+
+
+def test_auto_evolve_skips_external_dir_skill(tmp_path, monkeypatch):
+    db = tmp_path / "evidence.sqlite"
+    store = EvidenceStore(db)
+    hermes_home = tmp_path / ".hermes"
+    hermes_home.mkdir()
+    external = tmp_path / "team-skills"
+    backups = tmp_path / "backups"
+    skill_file = _write_skill(external, "team-playbook", "Shared team skill.")
+    (hermes_home / "config.yaml").write_text(
+        f"skills:\n  external_dirs:\n    - {external}\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+    original_hash = sha256_file(skill_file)
+    store.record_tool_call(
+        tool_name="skill_view",
+        args={"name": "team-playbook"},
+        result={"success": True},
+        session_id="s1",
+    )
+
+    result = run_auto_evolve(
+        AutoEvolveConfig(
+            db_path=db,
+            skills_dir=external,
+            backup_dir=backups,
+            days=30,
+            min_evidence=1,
+            apply_low_risk=True,
+            approve_auto_apply=True,
+        )
+    )
+
+    candidate = result["candidates"][0]
+    assert candidate["source"] == "external-dir"
+    assert candidate["status"] == "skipped"
+    assert candidate["reason"] == "source-not-agent-created"
+    assert result["summary"]["applied"] == 0
+    assert sha256_file(skill_file) == original_hash
 
 
 def test_install_auto_timer_emits_explicit_core_protection_policy(tmp_path, monkeypatch):

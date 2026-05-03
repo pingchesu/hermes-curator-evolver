@@ -1,7 +1,7 @@
 ---
 name: curator-evolution
 description: Use when interpreting Hermes Curator Evolver evidence reports, historical session backfill, proposals, verifier results, candidate search, auto-run output, timer installs, or guarded apply manifests.
-version: 0.8.0
+version: 0.9.0
 author: pingchesu
 license: MIT
 ---
@@ -22,8 +22,9 @@ Hermes Curator Evolver starts from evidence and keeps mutation guarded. Reports 
 8. `auto-run --semantic-candidates` and `--rerank-candidates` are explicit opt-ins that only reorder evidence-eligible candidates.
 9. Guarded apply requires approval, backup, verifier/validation pass, and rollback.
 10. `auto-run` mutates only when both `--apply-low-risk` and `--approve-auto-apply` are set.
-11. Even with write flags, unattended auto-apply skips core Hermes/workflow skills by default (`hermes-*`, `gsd-*`, `github-*`, `mcp-*`, coding-agent skills) unless explicitly allowlisted.
-12. `install-auto --enable` creates a user systemd timer; remove it with `uninstall-auto` before plugin uninstall.
+11. Even with write flags, unattended auto-apply writes only local agent-created skills. Official/bundled skills (`.bundled_manifest`), hub-installed skills (`.hub/lock.json`), plugin-provided skills, `skills.external_dirs`, pinned skills, and unknown sources are skipped.
+12. Core-name allowlists only operate inside that local agent-created source boundary; they do not override provenance.
+13. `install-auto --enable` creates a user systemd timer; remove it with `uninstall-auto` before plugin uninstall.
 
 ## Safe Next Actions
 
@@ -34,7 +35,7 @@ Hermes Curator Evolver starts from evidence and keeps mutation guarded. Reports 
 - Use `hermes-curator-evolver candidates --query <text> --skills-dir <dir>` for dependency-free lexical candidate search.
 - Use `hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --format json` to preview automatic improvements.
 - Use `hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --semantic-candidates --rerank-candidates --format json` to preview model-assisted candidate ordering.
-- Use `hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply` for actual low-risk append-only improvement; core skills are skipped by default.
+- Use `hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply` for actual low-risk append-only improvement; only local agent-created skills are writable.
 - Use `hermes-curator-evolver install-auto --schedule daily --enable` for plug-in daily automation without Hermes core changes.
 - Use `hermes-curator-evolver install-auto --schedule daily --enable --semantic-candidates --rerank-candidates` only when the user explicitly wants model-assisted timer candidate ordering.
 - Use `hermes-curator-evolver uninstall-auto` to remove the optional timer.

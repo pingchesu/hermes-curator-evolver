@@ -150,7 +150,7 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
         action="append",
         default=[],
         metavar="PATTERN",
-        help="Glob pattern that may auto-apply; also explicitly permits matching core skills",
+        help="Glob pattern that may auto-apply within the local agent-created source boundary; also explicitly permits matching core skills",
     )
     auto_run.add_argument(
         "--block-auto-apply-skill",
@@ -197,7 +197,7 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
         action="append",
         default=[],
         metavar="PATTERN",
-        help="Timer auto-apply allowlist glob; matching core skills are explicitly permitted",
+        help="Timer auto-apply allowlist glob within the local agent-created source boundary; matching core skills are explicitly permitted",
     )
     install_auto.add_argument(
         "--block-auto-apply-skill",

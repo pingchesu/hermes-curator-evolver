@@ -7,15 +7,15 @@ This document explains the current `hermes-curator-evolver` algorithm in plain t
 | Path | Uses embedding? | Uses reranker? | Can write skills? | Purpose |
 | --- | --- | --- | --- | --- |
 | `backfill-sessions` | No | No | No | Import existing Hermes `session_*.json` transcripts into evidence.sqlite so prior history can inform reports/autorun. |
-| `auto-run` / `install-auto` default | No | No | Yes, only append-only low-risk blocks for non-core skills when explicitly enabled | Safe automatic skill improvement with deterministic evidence thresholds and core-skill write protection. |
-| `auto-run --semantic-candidates` | Yes: `Qwen/Qwen3-Embedding-0.6B` | No unless `--rerank-candidates` | Yes, but only after the same write flags and non-core policy gate | Model-assisted ordering of evidence-eligible skills. |
-| `auto-run --semantic-candidates --rerank-candidates` | Yes | Yes: `BAAI/bge-reranker-v2-m3` | Yes, but only after the same write flags and non-core policy gate | Embedding + reranker ordering of evidence-eligible skills. |
+| `auto-run` / `install-auto` default | No | No | Yes, only append-only low-risk blocks for local agent-created skills when explicitly enabled | Safe automatic skill improvement with deterministic evidence thresholds and provenance write protection. |
+| `auto-run --semantic-candidates` | Yes: `Qwen/Qwen3-Embedding-0.6B` | No unless `--rerank-candidates` | Yes, but only after the same write flags and local-agent-created source gate | Model-assisted ordering of evidence-eligible skills. |
+| `auto-run --semantic-candidates --rerank-candidates` | Yes | Yes: `BAAI/bge-reranker-v2-m3` | Yes, but only after the same write flags and local-agent-created source gate | Embedding + reranker ordering of evidence-eligible skills. |
 | `candidates --execute-semantic` | Yes: `Qwen/Qwen3-Embedding-0.6B` | No unless `--rerank` | No | Manual/review candidate discovery. |
 | `candidates --execute-semantic --rerank` | Yes | Yes: `BAAI/bge-reranker-v2-m3` | No | Better manual/review ranking. |
 | `propose --draft-with-model` | Uses Hermes configured chat model | No | No | Draft a reviewable proposal artifact. |
 | `apply` | No | No | Yes, after explicit approval/hash/backup gates | Apply reviewed content. |
 
-Default autorun remains model-free. Embedding/rerank autorun is explicit opt-in and can only reorder candidates that already passed the evidence threshold; model output does not generate write content. Unattended apply is non-core-only by default: core Hermes/workflow skills may be proposed in dry-run output, but are skipped before write unless explicitly allowlisted.
+Default autorun remains model-free. Embedding/rerank autorun is explicit opt-in and can only reorder candidates that already passed the evidence threshold; model output does not generate write content. Unattended apply is provenance-safe by default: only local agent-created skills are writable. Official/bundled, hub-installed, plugin-provided, `skills.external_dirs`, pinned, and unknown sources may be proposed in dry-run output, but are skipped before write.
 
 Semantic execution is runtime-guarded for local machines: texts are truncated for candidate ranking (`HERMES_CURATOR_EVOLVER_SEMANTIC_TEXT_LIMIT`, default `512` chars), embedding batches run one at a time, and model runtime device is configurable with `HERMES_CURATOR_EVOLVER_SEMANTIC_DEVICE` (default `auto`; set `cpu` or `cuda` explicitly if needed). If local model execution fails, `auto-run` falls back to deterministic evidence ordering instead of crashing.
 
@@ -50,7 +50,7 @@ Backfill is intentionally model-free. It does not infer missing tool calls from 
 - Candidate cap: default `--max-skills 3`
 - Minimum evidence threshold: default `--min-evidence 2`
 - Optional candidate ordering: `--semantic-candidates`, `--rerank-candidates`
-- Auto-apply policy: `--protect-core-skills` default on, `--allow-auto-apply-skill <glob>`, `--block-auto-apply-skill <glob>`
+- Auto-apply policy: provenance gate writes only local agent-created skills; `--protect-core-skills` default on adds an extra name-based guard; `--allow-auto-apply-skill <glob>` and `--block-auto-apply-skill <glob>` operate inside that provenance boundary
 
 ### Steps
 
@@ -67,15 +67,16 @@ Backfill is intentionally model-free. It does not infer missing tool calls from 
    c. Optionally run reranker on query/skill pairs.
    d. Keep only skills from the evidence-eligible set.
    e. Use model scores only to reorder those eligible skills.
-6. Discover matching SKILL.md files under the skills directory.
+6. Discover matching SKILL.md files under the skills directory and classify source provenance.
 7. For each selected skill:
    a. Read the current SKILL.md.
    b. Skip pinned skills.
-   c. In dry-run, still plan core skills for review visibility.
-   d. In approved auto-apply mode, skip core Hermes/workflow skills unless explicitly allowlisted; also honor explicit blocklist/allowlist patterns.
-   e. Build a per-skill evidence report.
-   f. Generate/update a managed curator-evolver:auto block.
-   g. Preserve all existing skill text outside that block.
+   c. In dry-run, still plan protected sources for review visibility.
+   d. In approved auto-apply mode, skip any source other than `local-agent-created`: bundled/official, hub-installed, plugin-provided, `skills.external_dirs`, and unknown sources.
+   e. Apply the extra core/workflow name guard and explicit blocklist/allowlist patterns inside that provenance boundary.
+   f. Build a per-skill evidence report.
+   g. Generate/update a managed curator-evolver:auto block.
+   h. Preserve all existing skill text outside that block.
 8. If --apply-low-risk is not set:
    return dry-run plan only.
 9. If --apply-low-risk is set but --approve-auto-apply is missing:
@@ -113,6 +114,9 @@ for name in names[:max_skills]:
     original = read(skill_file)
     if pinned(original):
         skip("pinned-skill")
+    source = classify_skill_source(skill_file, name)
+    if apply_low_risk and approve_auto_apply and source != "local-agent-created":
+        skip("source-not-agent-created")
     if apply_low_risk and approve_auto_apply and auto_apply_blocked(name):
         skip("core-skill-auto-apply-protected")
 

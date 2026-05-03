@@ -25,7 +25,7 @@ After that:
 
 ## What autorun actually does
 
-Daily autorun is intentionally narrow. It learns from observed Hermes usage and only applies low-risk managed notes to skills.
+Daily autorun is intentionally narrow. It learns from observed Hermes usage and only applies low-risk managed notes to skills. **In v0.6, autorun does not use embedding or reranking; those are available only in the separate advisory `candidates` command.** For the exact algorithm, see [core-algorithm.md](core-algorithm.md).
 
 ```text
 Hermes sessions / tool calls / skill usage
@@ -88,7 +88,7 @@ The plugin is designed so the default autorun path does **not** require a model.
 | Feature | Model support | Default |
 | --- | --- | --- |
 | Evidence collection | None. Local SQLite aggregation only. | Always on when plugin hooks run. |
-| Daily autorun | None by default. Uses deterministic evidence thresholds and append-only patch policy. | No model download or inference. |
+| Daily autorun | **No embedding/rerank in v0.6.** Uses deterministic evidence thresholds and append-only patch policy. | No model download or inference. |
 | Proposal drafting | The active Hermes configured chat model/provider. The plugin does not hardcode OpenAI, Anthropic, or a local model. | Off unless `--draft-with-model` is passed. |
 | Verifier | Deterministic verifier today; future verifier prompt should use Hermes configured chat model. | Deterministic, no model required. |
 | Candidate embedding search | `Qwen/Qwen3-Embedding-0.6B` through `sentence-transformers`. | Off unless `--execute-semantic` is passed. |

@@ -72,7 +72,7 @@ hermes-curator-evolver install-auto --schedule daily --enable
 hermes gateway restart
 ```
 
-That is the whole happy path. After this, the plugin runs daily through a user-level systemd timer and can append low-risk, evidence-backed notes to active skills without changing Hermes Agent core. See [docs/after-install.md](docs/after-install.md) for health checks, timer behavior, uninstall steps, and the currently supported model paths.
+That is the whole happy path. After this, the plugin runs daily through a user-level systemd timer and can append low-risk, evidence-backed notes to active skills without changing Hermes Agent core. See [docs/after-install.md](docs/after-install.md) for health checks, timer behavior, uninstall steps, and the currently supported model paths. See [docs/core-algorithm.md](docs/core-algorithm.md) for the exact algorithm and the current embedding/rerank boundary.
 
 What gets installed:
 

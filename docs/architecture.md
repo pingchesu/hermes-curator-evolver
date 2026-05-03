@@ -42,7 +42,7 @@ The safety rule is simple: everything before `Apply` is non-mutating; `Apply` re
 | Reports | Shows which skills/tools produced useful or problematic evidence. |
 | Candidate search | Finds likely related skills with lexical search by default; semantic models are opt-in only. |
 | Proposal | Produces dry-run review artifacts grounded in evidence. |
-| Auto-run | Selects active evidence-backed skills and prepares low-risk managed append-only notes. |
+| Auto-run | Selects active evidence-backed skills with deterministic evidence thresholds and prepares low-risk managed append-only notes. It does **not** use embedding/rerank in v0.6. |
 | Verifier | Blocks ungrounded, mutating, or destructive proposals. |
 | Guarded apply | Writes reviewed content only after approval/hash/backup/verify gates. |
 
@@ -56,7 +56,7 @@ The safety rule is simple: everything before `Apply` is non-mutating; `Apply` re
 | v0.3/v0.5 | `Qwen/Qwen3-Embedding-0.6B` | Embedding skills, session evidence, and user corrections to find candidate skills. | Optional `--execute-semantic`; no default model download. |
 | v0.3/v0.5 | `BAAI/bge-reranker-v2-m3` | Re-ranking candidate skills/evidence after embedding search, especially for Chinese/English mixed workflows. | Optional `--rerank`; no default model download. |
 | v0.4 | Verifier + local validation command | Guarding reviewed content before it is applied. | Requires approval, backup, verification, and rollback path. |
-| v0.6 | None by default | Automatic low-risk append-only skill evolution from evidence. | Optional `auto-run` / `install-auto`; no Hermes core modification. |
+| v0.6 | None by default | Automatic low-risk append-only skill evolution from evidence. | Optional `auto-run` / `install-auto`; no Hermes core modification; no embedding/rerank in autorun. |
 
 Notes:
 
@@ -64,6 +64,7 @@ Notes:
 - Embedding/reranker models are candidate-generation aids only; they do not decide or apply edits by themselves.
 - Semantic mode has a plan-only path (`--semantic`) and explicit execution paths (`--execute-semantic`, `--rerank`); no model is downloaded unless the user opts in.
 - For post-install operations and the current supported-model matrix, see [after-install.md](after-install.md).
+- For the exact core algorithm and the current embedding/rerank boundary, see [core-algorithm.md](core-algorithm.md).
 
 ## Safety boundary
 

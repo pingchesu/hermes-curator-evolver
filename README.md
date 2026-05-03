@@ -15,7 +15,7 @@
 [![Agents](https://img.shields.io/badge/Agents-skill%20governance-2563eb?style=flat-square)](https://github.com/pingchesu/hermes-curator-evolver)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![SQLite](https://img.shields.io/badge/SQLite-local%20evidence-003B57?style=flat-square&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
-[![Safety](https://img.shields.io/badge/v0.9-provenance--safe%20autorun-22c55e?style=flat-square)](#safety-model)
+[![Safety](https://img.shields.io/badge/v0.10-bootstrap%20%2B%20safe%20autorun-22c55e?style=flat-square)](#safety-model)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](./LICENSE)
 
 | 📚 Session evidence | 📥 Backfill today | 🧠 Optional semantic search | 🛡️ Guarded automation |
@@ -29,7 +29,7 @@
 ## Contents
 
 - [Quick start: install, backfill, autorun](#quick-start-install-backfill-autorun)
-- [What you get](#what-you-get)
+- [At a glance](#at-a-glance)
 - [Why this exists](#why-this-exists)
 - [Inspired by SkillClaw, made Hermes-native](#inspired-by-skillclaw-made-hermes-native)
 - [Architecture](#architecture)
@@ -41,50 +41,53 @@
 
 ## Quick start: install, backfill, autorun
 
-Copy, paste, done. Default mode is model-free and deterministic.
+Copy, paste, done. `bootstrap` handles the noisy parts: backfill old sessions + enable daily safe autorun.
 
 ```bash
 hermes plugins install pingchesu/hermes-curator-evolver --enable
 uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e ~/.hermes/plugins/curator-evolver
-hermes-curator-evolver backfill-sessions --sessions-dir ~/.hermes/sessions --days 30 --format json
-hermes-curator-evolver install-auto --schedule daily --enable
-hermes gateway restart
+hermes-curator-evolver bootstrap
 ```
 
-That installs the plugin, imports your recent Hermes history, and enables a daily user-level timer that appends low-risk evidence notes only to **local agent-created** skills. Official/bundled skills, hub-installed skills, plugin-provided skills, and anything from `skills.external_dirs` are still analyzed, but skipped for unattended writes.
+That is the default, model-free path. It writes only low-risk append-only notes to **local agent-created** skills. Official/bundled, hub-installed, plugin-provided, `skills.external_dirs`, pinned, and unknown-source skills are skipped.
 
-Want smarter candidate ordering for larger or multilingual skill libraries?
+Want multilingual semantic/rerank ordering? Make the opt-in explicit:
 
 ```bash
 uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e "$HOME/.hermes/plugins/curator-evolver[semantic]"
-hermes-curator-evolver install-auto --schedule daily --enable --semantic-candidates --rerank-candidates
+hermes-curator-evolver bootstrap --semantic
 ```
 
-Semantic mode is still conservative: embeddings/rerankers only reorder candidates that already passed evidence thresholds. They do not write content by themselves, and the provenance gate still allows unattended writes only to local agent-created skills.
-
-Useful one-liners:
+Quick checks:
 
 ```bash
 hermes-curator-evolver status
-hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --format json  # dry-run preview
-hermes-curator-evolver uninstall-auto                                       # stop automation
+systemctl --user list-timers 'hermes-curator-evolver*' --all --no-pager
 ```
 
-Notes:
+If Hermes gateway was already running, restart it once so plugin hooks are loaded. For health checks, timer logs, model details, and uninstall steps, see [docs/after-install.md](docs/after-install.md).
 
-- Hermes currently clones the plugin to `~/.hermes/plugins/curator-evolver`, but general plugin CLI commands are not auto-installed yet. The `uv pip install ... -e` line is intentionally part of the quick start.
-- Existing sessions are not automatically imported by runtime hooks. Run `backfill-sessions` once if you already have Hermes history.
-- For health checks, timer logs, model details, and uninstall steps, see [docs/after-install.md](docs/after-install.md).
+## At a glance
 
-## What you get
+| 1. Collect | 2. Rank | 3. Improve | 4. Protect |
+|:-:|:-:|:-:|:-:|
+| Tool calls + skill loads + old sessions | Evidence counts; optional Qwen + bge rerank | Daily append-only notes | Only local agent-created skills are writable |
 
-| Need | What happens |
+```mermaid
+flowchart LR
+    S[Hermes sessions + tool calls] --> DB[(SQLite evidence)]
+    DB --> T[daily bootstrap timer]
+    T --> A[append notes to local agent-created skills]
+    T -. skip .-> P[official / hub / external / pinned skills]
+    A --> B[backup + rollback manifest]
+```
+
+| User concern | Short answer |
 | --- | --- |
-| **My skills should learn from real work** | Hermes tool calls, skill events, sessions, and backfilled transcripts become local SQLite evidence. |
-| **I want it to feel automatic** | `install-auto --enable` creates a daily autorun timer. No daily command to remember. |
-| **I have lots of old sessions** | `backfill-sessions` turns existing `session_*.json` files into usable evidence immediately. |
-| **I want better matching** | Optional Qwen embeddings + bge reranking can improve candidate ordering. |
-| **I do not want scary rewrites** | Autorun writes append-only managed notes, skips pinned skills, skips official/bundled, hub-installed, plugin-provided, and `external_dirs` skills, and records backup/rollback manifests. |
+| **Will it run by itself?** | Yes. `bootstrap` enables a daily user-level timer. |
+| **Will it rewrite my skills?** | No. Autorun only updates a managed append-only block. |
+| **Will it touch official/team skills?** | No. Provenance gate skips bundled, hub, plugin, and `external_dirs` skills. |
+| **Can I inspect first?** | Yes. `auto-run --format json` is dry-run by default. |
 
 ## Why this exists
 
@@ -133,6 +136,7 @@ flowchart LR
 | v0.6 | None by default | Automatic low-risk append-only skill updates from observed evidence. | Optional `install-auto`; no Hermes core modification. |
 | v0.7 | `Qwen/Qwen3-Embedding-0.6B` + `BAAI/bge-reranker-v2-m3` | Optional model-assisted autorun candidate ordering. | Explicit `--semantic-candidates --rerank-candidates`; models only reorder evidence-eligible candidates. |
 | v0.9 | None | Provenance-safe unattended auto-apply. | Writes only local agent-created skills; skips bundled, hub, plugin, external, pinned, and unknown sources. |
+| v0.10 | None by default | One-command setup and clearer public README. | `bootstrap` backfills sessions and installs/enables autorun; `bootstrap --semantic` is explicit model opt-in. |
 
 ## Safety model
 
@@ -163,6 +167,11 @@ Hard defaults:
 ## CLI reference
 
 ```bash
+# One-command bootstrap
+hermes-curator-evolver bootstrap
+hermes-curator-evolver bootstrap --semantic
+hermes-curator-evolver bootstrap --format json
+
 # Evidence
 hermes-curator-evolver status
 hermes-curator-evolver report --days 7 --format json
@@ -294,6 +303,7 @@ export HERMES_CURATOR_EVOLVER_DB=/custom/path.sqlite
 - ✅ **v0.7** — explicit `--semantic-candidates` / `--rerank-candidates` for model-assisted autorun candidate ordering.
 - ✅ **v0.8** — `backfill-sessions` for existing Hermes history, `CONTRIBUTING.md`, and GitHub Actions CI.
 - ✅ **v0.9** — provenance-safe autorun: only local agent-created skills can be auto-applied; bundled, hub, plugin, external, pinned, and unknown sources are skipped.
+- ✅ **v0.10** — `bootstrap` one-command setup plus a shorter, visual quick start.
 
 ---
 

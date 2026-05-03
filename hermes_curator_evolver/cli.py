@@ -166,6 +166,48 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
     )
     auto_run.set_defaults(func=handle_cli)
 
+    bootstrap = subs.add_parser(
+        "bootstrap",
+        help="One-command setup: backfill sessions and install the auto-run timer",
+    )
+    bootstrap.add_argument("--days", type=int, default=30, help="Historical session backfill window")
+    bootstrap.add_argument("--sessions-dir", help="Hermes sessions directory (default: ~/.hermes/sessions)")
+    bootstrap.add_argument("--skills-dir", help="Skills root for the timer command (default: ~/.hermes/skills)")
+    bootstrap.add_argument("--schedule", default="daily", help="systemd OnCalendar value or hourly/daily/weekly")
+    bootstrap.add_argument("--proposal-only", action="store_true", help="Install dry-run timer instead of applying low-risk updates")
+    bootstrap.add_argument(
+        "--semantic",
+        action="store_true",
+        help="Shortcut for semantic + rerank timer candidate ordering (explicit model opt-in)",
+    )
+    bootstrap.add_argument(
+        "--semantic-candidates",
+        action="store_true",
+        help="Timer uses embedding-backed candidate ordering",
+    )
+    bootstrap.add_argument(
+        "--rerank-candidates",
+        action="store_true",
+        help="Timer uses reranker-backed candidate ordering; implies --semantic-candidates",
+    )
+    bootstrap.add_argument(
+        "--enable",
+        dest="enable",
+        action="store_true",
+        default=True,
+        help="Enable and start the timer now (default)",
+    )
+    bootstrap.add_argument(
+        "--no-enable",
+        dest="enable",
+        action="store_false",
+        help="Write timer units without enabling them",
+    )
+    bootstrap.add_argument(
+        "--format", choices=["text", "json"], default="text", help="Output format"
+    )
+    bootstrap.set_defaults(func=handle_cli)
+
     backfill = subs.add_parser("backfill-sessions", help="Import historical Hermes session transcripts into evidence")
     backfill.add_argument("--sessions-dir", help="Hermes sessions directory (default: ~/.hermes/sessions)")
     backfill.add_argument("--days", type=int, default=30, help="Only import sessions from this many days")
@@ -234,6 +276,61 @@ def _emit(text: str, output: str | None = None) -> None:
     if output:
         Path(output).write_text(text, encoding="utf-8")
     print(text)
+
+
+def _format_bootstrap_result(result: dict, output_format: str = "text") -> str:
+    if output_format == "json":
+        return json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True)
+
+    backfill = result["backfill"]
+    timer = result["auto_timer"]
+    lines = [
+        "Hermes Curator Evolver bootstrap",
+        f"✓ Backfilled {backfill.get('sessions_imported', 0)} session(s), "
+        f"{backfill.get('tool_events_imported', 0)} tool event(s)",
+        f"✓ Timer installed: {timer.get('schedule')} "
+        f"({'enabled' if timer.get('enabled') else 'not enabled'})",
+        f"✓ Auto-apply policy: {timer.get('auto_apply_policy', 'local-agent-created-skills-only')}",
+        "Next:",
+    ]
+    lines.extend(f"- {item}" for item in result["next_steps"])
+    return "\n".join(lines)
+
+
+def _run_bootstrap(values: dict) -> dict:
+    semantic_requested = bool(
+        values.get("semantic") or values.get("semantic_candidates") or values.get("rerank_candidates")
+    )
+    rerank_requested = bool(values.get("semantic") or values.get("rerank_candidates"))
+    backfill_result = backfill_sessions(
+        sessions_dir=values.get("sessions_dir"),
+        days=_bounded_days(values.get("days"), 30),
+        limit=None,
+    )
+    timer_result = install_auto_timer(
+        schedule=values.get("schedule") or "daily",
+        skills_dir=values.get("skills_dir"),
+        apply_low_risk=not bool(values.get("proposal_only")),
+        enable=bool(values.get("enable")),
+        semantic_candidates=semantic_requested or rerank_requested,
+        rerank_candidates=rerank_requested,
+        protect_core_skills=True,
+        auto_apply_allowlist=(),
+        auto_apply_blocklist=(),
+    )
+    return {
+        "schema_version": "0.10",
+        "mode": "bootstrap",
+        "backfill": backfill_result,
+        "auto_timer": timer_result,
+        "semantic_requested": semantic_requested,
+        "rerank_requested": rerank_requested,
+        "next_steps": [
+            "Restart Hermes gateway/CLI if it was already running so plugin hooks are loaded.",
+            "Run `hermes-curator-evolver status` to inspect evidence counts.",
+            "Run `hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --format json` for a dry-run preview.",
+        ],
+    }
 
 
 def handle_cli(args: argparse.Namespace) -> None:
@@ -350,6 +447,11 @@ def handle_cli(args: argparse.Namespace) -> None:
             )
         )
         print(format_auto_evolve_result(result, output_format=values.get("format") or "markdown"))
+        return
+
+    if command == "bootstrap":
+        result = _run_bootstrap(values)
+        print(_format_bootstrap_result(result, output_format=values.get("format") or "text"))
         return
 
     if command == "backfill-sessions":

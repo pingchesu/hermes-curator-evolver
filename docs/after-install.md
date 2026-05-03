@@ -9,9 +9,10 @@ The open-box quick start installs three things:
 ```bash
 hermes plugins install pingchesu/hermes-curator-evolver --enable
 uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e ~/.hermes/plugins/curator-evolver
-hermes-curator-evolver install-auto --schedule daily --enable
-hermes gateway restart
+hermes-curator-evolver bootstrap
 ```
+
+`bootstrap` combines the two noisy setup steps that used to be separate: it backfills recent sessions and installs/enables the daily timer. Use `bootstrap --semantic` only when you explicitly want embedding + rerank candidate ordering.
 
 After that:
 
@@ -19,7 +20,7 @@ After that:
 | --- | --- |
 | Plugin clone | `~/.hermes/plugins/curator-evolver` exists. |
 | CLI entrypoint | `hermes-curator-evolver` is available in the Hermes Python environment. |
-| Evidence DB | `~/.hermes/plugins/curator-evolver/data/evidence.sqlite` is created as Hermes records evidence. |
+| Evidence DB | `~/.hermes/plugins/curator-evolver/data/evidence.sqlite` exists and includes recent backfilled session evidence. |
 | User timer | `hermes-curator-evolver-auto.timer` runs daily. |
 | Hermes core | Unmodified. The plugin is removable without patching Hermes Agent source code. |
 

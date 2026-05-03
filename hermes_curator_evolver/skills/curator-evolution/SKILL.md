@@ -1,7 +1,7 @@
 ---
 name: curator-evolution
 description: Use when interpreting Hermes Curator Evolver evidence reports, historical session backfill, proposals, verifier results, candidate search, auto-run output, timer installs, or guarded apply manifests.
-version: 0.9.0
+version: 0.10.0
 author: pingchesu
 license: MIT
 ---
@@ -28,6 +28,8 @@ Hermes Curator Evolver starts from evidence and keeps mutation guarded. Reports 
 
 ## Safe Next Actions
 
+- Run `hermes-curator-evolver bootstrap` for the default one-command setup: backfill recent sessions and enable the daily safe autorun timer.
+- Run `hermes-curator-evolver bootstrap --semantic` only when the user explicitly wants model-assisted timer candidate ordering.
 - Run `hermes-curator-evolver report --days 7` for evidence.
 - Run `hermes-curator-evolver backfill-sessions --sessions-dir ~/.hermes/sessions --days 30 --format json` once when existing Hermes sessions should seed evidence.
 - Run `hermes-curator-evolver propose --skill <name> --format json` for a dry-run proposal.

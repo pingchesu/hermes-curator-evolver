@@ -10,7 +10,18 @@ readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }
 authors = [{ name = "pingchesu" }]
-keywords = ["hermes-agent", "plugin", "skills", "curator", "evidence"]
+keywords = [
+  "hermes-agent",
+  "hermes-plugin",
+  "agents",
+  "ai-agents",
+  "ai-skills",
+  "skills",
+  "curator",
+  "skill-evolution",
+  "skill-governance",
+  "evidence-driven",
+]
 classifiers = [
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",

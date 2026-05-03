@@ -4,6 +4,10 @@ Read-only evidence-driven skill governance plugin for Hermes Agent curator workf
 
 This project complements the official `hermes curator` instead of replacing it. v0.1 observes Hermes sessions and skill-related tool usage, stores compact local evidence in SQLite, and produces reports that help decide whether a skill should be improved, retitled, split, consolidated, or left alone.
 
+## Architecture
+
+See [docs/architecture.md](docs/architecture.md) for the component diagram, data-flow sequence, repository/module map, and v0.1 safety boundary.
+
 ## v0.1 Safety Model
 
 - Read-only evidence/reporting only.

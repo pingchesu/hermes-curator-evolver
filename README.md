@@ -59,13 +59,22 @@ Hermes skills are powerful, but a growing skill library can become noisy: stale 
 
 ## Quick start
 
+Install and enable the Hermes directory plugin:
+
 ```bash
 hermes plugins install pingchesu/hermes-curator-evolver --enable
+hermes gateway restart
 ```
 
-Restart Hermes after enabling plugins.
+This activates the plugin hooks/tools. Current Hermes plugin installs clone the repo into `~/.hermes/plugins/curator-evolver`; they do **not** install Python console scripts automatically yet.
 
-Then use the standalone CLI:
+For the standalone CLI, install an editable entrypoint into the Hermes venv:
+
+```bash
+uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e ~/.hermes/plugins/curator-evolver
+```
+
+Then use the CLI:
 
 ```bash
 hermes-curator-evolver status
@@ -76,7 +85,14 @@ hermes-curator-evolver verify --proposal-file proposal.json --skill hermes-agent
 hermes-curator-evolver candidates --query "gateway plugin restart" --skills-dir ~/.hermes/skills
 ```
 
-Current Hermes versions can list and enable general plugins, but top-level `hermes <plugin>` CLI wiring may not expose general plugin commands yet. This plugin still registers `curator-evolver` through Hermes plugin APIs for forward compatibility; the stable command is `hermes-curator-evolver ...`.
+If you only want a one-off CLI smoke test without installing the entrypoint, run:
+
+```bash
+PYTHONPATH=~/.hermes/plugins/curator-evolver \
+  ~/.hermes/hermes-agent/venv/bin/python -m hermes_curator_evolver status
+```
+
+Current Hermes versions can list and enable general plugins, but top-level `hermes <plugin>` CLI wiring may not expose general plugin commands yet. This plugin still registers `curator-evolver` through Hermes plugin APIs for forward compatibility; the stable command is `hermes-curator-evolver ...` after the editable CLI step above.
 
 ## Architecture
 

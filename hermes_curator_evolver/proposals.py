@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+import subprocess
+from typing import Any, Callable
 
 
 def _summary(report: dict[str, Any]) -> dict[str, int]:
@@ -59,9 +60,9 @@ def build_skill_proposal(
 ) -> dict[str, Any]:
     """Build a dry-run skill improvement proposal from evidence.
 
-    The proposal is intentionally deterministic in v0.2. It prepares grounded
-    context for a future Hermes-configured chat-model drafting pass, but it does
-    not call a model or write skill files by itself.
+    The base proposal is deterministic. Optional model drafting is handled by
+    `build_model_drafted_proposal()` so the default path never calls a model or
+    writes skill files by itself.
     """
 
     evidence_summary = _summary(report)
@@ -86,6 +87,64 @@ def build_skill_proposal(
         },
         "draft_prompt": _draft_prompt(skill_name, evidence_summary, evidence_rows, skill_text),
     }
+
+
+def hermes_chat_backend(prompt: str, *, timeout_seconds: int = 180) -> str:
+    """Draft through the current Hermes CLI/model configuration.
+
+    This uses Hermes as a read-only drafting subprocess. The prompt explicitly
+    asks for proposal text only; applying edits remains a separate guarded step.
+    """
+
+    completed = subprocess.run(
+        ["hermes", "chat", "-Q", "-q", prompt],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=timeout_seconds,
+    )
+    if completed.returncode != 0:
+        stderr = completed.stderr.strip() or completed.stdout.strip()
+        raise RuntimeError(stderr or f"hermes chat exited {completed.returncode}")
+    return completed.stdout.strip()
+
+
+def build_model_drafted_proposal(
+    report: dict[str, Any],
+    *,
+    skill_name: str,
+    skill_text: str = "",
+    chat_backend: Callable[[str], str] | None = None,
+) -> dict[str, Any]:
+    """Build a dry-run proposal and optionally attach chat-model draft text."""
+
+    proposal = build_skill_proposal(report, skill_name=skill_name, skill_text=skill_text)
+    if chat_backend is None:
+        proposal["model_draft"] = {
+            "executed": False,
+            "text": "",
+            "note": "No chat backend was provided; deterministic dry-run proposal only.",
+        }
+        return proposal
+
+    try:
+        draft = chat_backend(str(proposal["draft_prompt"]))
+    except Exception as exc:
+        proposal["model_draft"] = {
+            "executed": False,
+            "text": "",
+            "error": str(exc),
+        }
+    else:
+        proposal["model_draft"] = {
+            "executed": True,
+            "text": draft,
+            "policy": "Draft text only; no files were changed.",
+        }
+    proposal["dry_run"] = True
+    proposal["mutation_allowed"] = False
+    proposal["requires_human_approval"] = True
+    return proposal
 
 
 def _draft_prompt(

@@ -1,6 +1,10 @@
 import json
 
-from hermes_curator_evolver.proposals import build_skill_proposal, format_proposal_markdown
+from hermes_curator_evolver.proposals import (
+    build_model_drafted_proposal,
+    build_skill_proposal,
+    format_proposal_markdown,
+)
 from hermes_curator_evolver.reports import build_report
 from hermes_curator_evolver.storage import EvidenceStore
 from hermes_curator_evolver.verifier import verify_proposal
@@ -42,6 +46,55 @@ def test_format_proposal_markdown_includes_no_mutation_disclaimer(tmp_path):
     assert "# Curator Evolver Proposal" in markdown
     assert "No files were changed" in markdown
     assert "empty-skill" in markdown
+
+
+def test_model_drafted_proposal_calls_injected_chat_backend_and_stays_dry_run(tmp_path):
+    store = EvidenceStore(tmp_path / "evidence.sqlite")
+    store.record_tool_call(
+        tool_name="skill_view",
+        args={"name": "hermes-agent"},
+        result='{"success": true}',
+        session_id="s1",
+        task_id="t1",
+    )
+    report = build_report(store, days=30, skill="hermes-agent")
+    captured = {}
+
+    def fake_chat_backend(prompt: str) -> str:
+        captured["prompt"] = prompt
+        return "Draft: add a gateway restart troubleshooting caveat."
+
+    proposal = build_model_drafted_proposal(
+        report,
+        skill_name="hermes-agent",
+        skill_text="# Hermes Agent",
+        chat_backend=fake_chat_backend,
+    )
+
+    assert "Skill: hermes-agent" in captured["prompt"]
+    assert proposal["dry_run"] is True
+    assert proposal["mutation_allowed"] is False
+    assert proposal["model_draft"]["executed"] is True
+    assert proposal["model_draft"]["text"] == "Draft: add a gateway restart troubleshooting caveat."
+
+
+def test_model_drafted_proposal_records_backend_errors_without_mutation(tmp_path):
+    store = EvidenceStore(tmp_path / "evidence.sqlite")
+    report = build_report(store, days=7, skill="hermes-agent")
+
+    def failing_backend(_prompt: str) -> str:
+        raise RuntimeError("model unavailable")
+
+    proposal = build_model_drafted_proposal(
+        report,
+        skill_name="hermes-agent",
+        skill_text="content",
+        chat_backend=failing_backend,
+    )
+
+    assert proposal["dry_run"] is True
+    assert proposal["model_draft"]["executed"] is False
+    assert proposal["model_draft"]["error"] == "model unavailable"
 
 
 def test_verifier_accepts_grounded_dry_run_proposal(tmp_path):

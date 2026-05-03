@@ -9,7 +9,7 @@
 [![Agents](https://img.shields.io/badge/Agents-skill%20governance-2563eb?style=flat-square)](https://github.com/pingchesu/hermes-curator-evolver)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![SQLite](https://img.shields.io/badge/SQLite-local%20evidence-003B57?style=flat-square&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
-[![Safety](https://img.shields.io/badge/v0.4-guarded%20apply-22c55e?style=flat-square)](#safety-model)
+[![Safety](https://img.shields.io/badge/v0.5-model%20drafting%20%2B%20guarded%20apply-22c55e?style=flat-square)](#safety-model)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](./LICENSE)
 
 | 🔎 Evidence first | 🧠 Model-aware roadmap | 🛡️ Guarded apply | 🔌 Hermes plugin |
@@ -49,7 +49,7 @@ Hermes skills are powerful, but a growing skill library can become noisy: stale 
 </tr>
 <tr>
 <td>🔍 <b>Find candidates</b></td>
-<td>Provides dependency-free lexical candidate search and an explicit semantic model plan.</td>
+<td>Provides dependency-free lexical candidate search, semantic embedding execution on request, and optional reranking.</td>
 </tr>
 <tr>
 <td>🛡️ <b>Apply safely</b></td>
@@ -81,8 +81,10 @@ hermes-curator-evolver status
 hermes-curator-evolver report --days 7
 hermes-curator-evolver analyze --skill hermes-agent --days 30
 hermes-curator-evolver propose --skill hermes-agent --format json --output proposal.json
+hermes-curator-evolver propose --skill hermes-agent --skill-file ~/.hermes/skills/autonomous-ai-agents/hermes-agent/SKILL.md --draft-with-model
 hermes-curator-evolver verify --proposal-file proposal.json --skill hermes-agent
 hermes-curator-evolver candidates --query "gateway plugin restart" --skills-dir ~/.hermes/skills
+hermes-curator-evolver candidates --query "gateway plugin restart" --skills-dir ~/.hermes/skills --execute-semantic --rerank --format json
 ```
 
 If you only want a one-off CLI smoke test without installing the entrypoint, run:
@@ -114,10 +116,10 @@ flowchart LR
 | Phase | Model | Purpose | Default |
 | --- | --- | --- | --- |
 | v0.1 | None | Evidence collection and report aggregation. | Local/read-only. |
-| v0.2 | Hermes configured chat model plan | Draft improvement proposals from evidence + skill text. | Dry-run artifact; no skill writes. |
+| v0.2 | Hermes configured chat model | Draft improvement proposals from evidence + skill text. | Optional `--draft-with-model`; dry-run artifact; no skill writes. |
 | v0.2 | Deterministic verifier + future verifier prompt | Check grounding, safety, and non-destructive behavior. | Blocks mutation by default. |
-| v0.3 | `Qwen3-Embedding-0.6B` | Candidate skill/evidence/user-correction search. | Optional semantic mode; no default download. |
-| v0.3 | `bge-reranker-v2-m3` | Re-rank candidates, especially for mixed Chinese/English agent workflows. | Optional semantic mode; no default download. |
+| v0.3/v0.5 | `Qwen/Qwen3-Embedding-0.6B` | Candidate skill/evidence/user-correction search. | Optional `--execute-semantic`; no default download. |
+| v0.3/v0.5 | `BAAI/bge-reranker-v2-m3` | Re-rank candidates, especially for mixed Chinese/English agent workflows. | Optional `--rerank`; no default download. |
 | v0.4 | Verifier + local validation command | Guard final reviewed content before apply. | Requires approval, backup, verification, rollback. |
 
 ## Safety model
@@ -137,7 +139,7 @@ The guarded path requires:
 Hard defaults:
 
 - ✅ Evidence/report/proposal/candidate commands do not mutate skills.
-- ✅ Semantic mode does not download models by default.
+- ✅ Semantic mode does not download models by default; `--execute-semantic` / `--rerank` are explicit opt-ins.
 - ✅ Apply refuses to run without `--approve`.
 - ✅ Apply refuses if the target SHA256 changed.
 - ✅ Apply creates a backup before writing.
@@ -153,11 +155,14 @@ hermes-curator-evolver analyze --skill hermes-agent --days 30
 
 # Proposal + verifier
 hermes-curator-evolver propose --skill hermes-agent --skill-file ./SKILL.md --format json --output proposal.json
+hermes-curator-evolver propose --skill hermes-agent --skill-file ./SKILL.md --draft-with-model --model-timeout 180
 hermes-curator-evolver verify --proposal-file proposal.json --skill hermes-agent --format json
 
 # Candidate generation
 hermes-curator-evolver candidates --query "gateway restart plugin cli" --skills-dir ~/.hermes/skills
-hermes-curator-evolver candidates --query "中文 mixed agent skill" --skills-dir ~/.hermes/skills --semantic --format json
+hermes-curator-evolver candidates --query "中文 mixed agent skill" --skills-dir ~/.hermes/skills --semantic --format json       # plan only
+hermes-curator-evolver candidates --query "中文 mixed agent skill" --skills-dir ~/.hermes/skills --execute-semantic --format json
+hermes-curator-evolver candidates --query "中文 mixed agent skill" --skills-dir ~/.hermes/skills --execute-semantic --rerank --format json
 
 # Guarded apply
 sha256sum ./SKILL.md
@@ -228,6 +233,7 @@ export HERMES_CURATOR_EVOLVER_DB=/custom/path.sqlite
 - ✅ **v0.2** — proposal generation + verifier gate, dry-run by default.
 - ✅ **v0.3** — candidate generation interface with optional embedding/reranker model plan.
 - ✅ **v0.4** — guarded apply with explicit approval, backup, verification, and rollback.
+- ✅ **v0.5** — explicit model execution paths: Hermes chat-model drafts, Qwen embedding candidate ranking, and bge reranking.
 
 ---
 

@@ -8,9 +8,11 @@ from pathlib import Path
 
 from .guarded_apply import apply_guarded_patch, rollback_guarded_patch
 from .proposals import (
+    build_model_drafted_proposal,
     build_skill_proposal,
     format_proposal_json,
     format_proposal_markdown,
+    hermes_chat_backend,
 )
 from .reports import build_default_report, format_json_report, format_markdown_report
 from .semantic import find_skill_candidates
@@ -48,6 +50,12 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
         "--format", choices=["markdown", "json"], default="markdown", help="Output format"
     )
     propose.add_argument("--output", help="Optional output file")
+    propose.add_argument(
+        "--draft-with-model",
+        action="store_true",
+        help="Call the current Hermes chat model for draft text (still dry-run)",
+    )
+    propose.add_argument("--model-timeout", type=int, default=180, help="Hermes chat draft timeout seconds")
     propose.set_defaults(func=handle_cli)
 
     verify = subs.add_parser("verify", help="Verify a dry-run proposal")
@@ -63,6 +71,16 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
     candidates.add_argument("--query", required=True, help="Evidence/query text")
     candidates.add_argument("--skills-dir", required=True, help="Directory containing SKILL.md files")
     candidates.add_argument("--semantic", action="store_true", help="Show semantic model plan")
+    candidates.add_argument(
+        "--execute-semantic",
+        action="store_true",
+        help="Actually load and execute the embedding model for semantic ranking",
+    )
+    candidates.add_argument(
+        "--rerank",
+        action="store_true",
+        help="When semantic execution is enabled, also load and execute the reranker",
+    )
     candidates.add_argument("--limit", type=int, default=10, help="Max candidates")
     candidates.add_argument(
         "--format", choices=["text", "json"], default="text", help="Output format"
@@ -128,7 +146,16 @@ def handle_cli(args: argparse.Namespace) -> None:
         skill_file = values.get("skill_file")
         skill_text = Path(skill_file).read_text(encoding="utf-8") if skill_file else ""
         report = build_default_report(days=days, skill=skill)
-        proposal = build_skill_proposal(report, skill_name=skill, skill_text=skill_text)
+        if values.get("draft_with_model"):
+            timeout = int(values.get("model_timeout") or 180)
+            proposal = build_model_drafted_proposal(
+                report,
+                skill_name=skill,
+                skill_text=skill_text,
+                chat_backend=lambda prompt: hermes_chat_backend(prompt, timeout_seconds=timeout),
+            )
+        else:
+            proposal = build_skill_proposal(report, skill_name=skill, skill_text=skill_text)
         text = format_proposal_json(proposal) if values.get("format") == "json" else format_proposal_markdown(proposal)
         _emit(text, values.get("output"))
         return
@@ -150,8 +177,10 @@ def handle_cli(args: argparse.Namespace) -> None:
         result = find_skill_candidates(
             query=str(values["query"]),
             skills_dir=values["skills_dir"],
-            semantic=bool(values.get("semantic")),
+            semantic=bool(values.get("semantic") or values.get("execute_semantic")),
             limit=int(values.get("limit") or 10),
+            load_models=bool(values.get("execute_semantic")),
+            load_reranker=bool(values.get("rerank")),
         )
         if values.get("format") == "json":
             print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))

@@ -47,17 +47,17 @@ The safety rule is simple: everything before `Apply` is non-mutating; `Apply` re
 | Phase | Model | Used for | Default behavior |
 | --- | --- | --- | --- |
 | v0.1 | None | Evidence collection and report aggregation. | Local/read-only. |
-| v0.2 | Hermes configured chat model plan | Drafting improvement proposals from evidence and existing skill text. | Dry-run artifact; no skill writes. |
+| v0.2 | Hermes configured chat model | Drafting improvement proposals from evidence and existing skill text. | Optional `--draft-with-model`; dry-run artifact; no skill writes. |
 | v0.2 | Deterministic verifier + future verifier prompt | Checking whether a proposal is grounded, safe, and non-destructive. | Blocks mutation by default. |
-| v0.3 | `Qwen3-Embedding-0.6B` | Embedding skills, session evidence, and user corrections to find candidate skills. | Optional semantic mode; no default model download. |
-| v0.3 | `bge-reranker-v2-m3` | Re-ranking candidate skills/evidence after embedding search, especially for Chinese/English mixed workflows. | Optional semantic mode; no default model download. |
+| v0.3/v0.5 | `Qwen/Qwen3-Embedding-0.6B` | Embedding skills, session evidence, and user corrections to find candidate skills. | Optional `--execute-semantic`; no default model download. |
+| v0.3/v0.5 | `BAAI/bge-reranker-v2-m3` | Re-ranking candidate skills/evidence after embedding search, especially for Chinese/English mixed workflows. | Optional `--rerank`; no default model download. |
 | v0.4 | Verifier + local validation command | Guarding reviewed content before it is applied. | Requires approval, backup, verification, and rollback path. |
 
 Notes:
 
 - Chat/proposal/verifier text generation should follow the user's active Hermes provider configuration instead of being hardcoded in this plugin.
 - Embedding/reranker models are candidate-generation aids only; they do not decide or apply edits by themselves.
-- Semantic mode currently exposes the model plan and interface without downloading or running models by default.
+- Semantic mode has a plan-only path (`--semantic`) and explicit execution paths (`--execute-semantic`, `--rerank`); no model is downloaded unless the user opts in.
 
 ## Safety boundary
 
@@ -84,7 +84,7 @@ Hard rules:
 
 - Evidence/report/proposal/candidate commands do not mutate skills.
 - Candidate search is advisory.
-- Semantic model execution is opt-in and performs no default downloads.
+- Semantic model execution is opt-in: `--semantic` is plan-only; `--execute-semantic` loads embeddings; `--rerank` loads the reranker.
 - Guarded apply requires exact target SHA256 and `--approve`.
 - Guarded apply creates a backup and manifest before writing.
 - Failed validation restores the backup automatically.
@@ -95,8 +95,10 @@ Hard rules:
 hermes-curator-evolver status
 hermes-curator-evolver report --days 7 --format json
 hermes-curator-evolver propose --skill hermes-agent --format json --output proposal.json
+hermes-curator-evolver propose --skill hermes-agent --skill-file ./SKILL.md --draft-with-model
 hermes-curator-evolver verify --proposal-file proposal.json --skill hermes-agent
 hermes-curator-evolver candidates --query "gateway restart" --skills-dir ~/.hermes/skills
+hermes-curator-evolver candidates --query "gateway restart" --skills-dir ~/.hermes/skills --execute-semantic --rerank --format json
 hermes-curator-evolver apply --target ./SKILL.md --content-file ./reviewed-SKILL.md --expected-sha256 <sha> --approve
 hermes-curator-evolver rollback --manifest .curator-evolver-backups/<timestamp>/manifest.json
 ```

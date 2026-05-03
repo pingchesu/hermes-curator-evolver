@@ -61,50 +61,81 @@ Hermes skills are powerful, but a growing skill library can become noisy: stale 
 </tr>
 </table>
 
-## Quick start
+## Quick start: open-box autorun
 
-Install and enable the Hermes directory plugin:
+If your goal is **"install it, then let Hermes skills improve by themselves"**, use this one path:
 
 ```bash
 hermes plugins install pingchesu/hermes-curator-evolver --enable
+uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e ~/.hermes/plugins/curator-evolver
+hermes-curator-evolver install-auto --schedule daily --enable
 hermes gateway restart
 ```
 
-This activates the plugin hooks/tools. Current Hermes plugin installs clone the repo into `~/.hermes/plugins/curator-evolver`; they do **not** install Python console scripts automatically yet.
+That is the whole happy path. After this, the plugin runs daily through a user-level systemd timer and can append low-risk, evidence-backed notes to active skills without changing Hermes Agent core.
 
-For the standalone CLI, install an editable entrypoint into the Hermes venv:
+What gets installed:
 
-```bash
-uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e ~/.hermes/plugins/curator-evolver
+| Piece | Purpose |
+| --- | --- |
+| Hermes plugin | Collects local evidence from Hermes runtime hooks/tools. |
+| `hermes-curator-evolver` CLI | Provides report/proposal/apply/autorun commands. |
+| `hermes-curator-evolver-auto.timer` | Runs the autorun loop daily, so users do not need to remember commands. |
+
+What the daily autorun does:
+
+```text
+observed skill usage/errors
+  → local evidence.sqlite
+  → auto-run candidate selection
+  → low-risk append-only SKILL.md note
+  → backup + rollback manifest
 ```
 
-Then use the CLI:
+The timer runs the equivalent of:
+
+```bash
+hermes-curator-evolver auto-run \
+  --skills-dir ~/.hermes/skills \
+  --format json \
+  --apply-low-risk \
+  --approve-auto-apply
+```
+
+Safety defaults:
+
+- It does **not** modify Hermes Agent source code.
+- It does **not** rewrite whole skills.
+- It does **not** delete existing skill text.
+- It only writes managed append-only evidence notes.
+- It skips pinned skills and low-evidence changes.
+- Every write has a backup and rollback manifest.
+
+To preview what autorun would do before enabling the timer:
+
+```bash
+hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --format json
+```
+
+To stop the automatic loop:
+
+```bash
+hermes-curator-evolver uninstall-auto
+```
+
+Current Hermes plugin installs clone the repo into `~/.hermes/plugins/curator-evolver`; they do **not** install Python console scripts automatically yet, so the `uv pip install ... -e` line above is intentionally part of the quick start. Top-level `hermes <plugin>` CLI wiring may not expose general plugin commands yet; the stable command is `hermes-curator-evolver ...` after the editable CLI step.
+
+### Manual commands, if you want to inspect or review
+
+Most users do not need these for open-box autorun, but they are useful for debugging or governance:
 
 ```bash
 hermes-curator-evolver status
 hermes-curator-evolver report --days 7
 hermes-curator-evolver analyze --skill hermes-agent --days 30
 hermes-curator-evolver propose --skill hermes-agent --format json --output proposal.json
-hermes-curator-evolver propose --skill hermes-agent --skill-file ~/.hermes/skills/autonomous-ai-agents/hermes-agent/SKILL.md --draft-with-model
 hermes-curator-evolver verify --proposal-file proposal.json --skill hermes-agent
 hermes-curator-evolver candidates --query "gateway plugin restart" --skills-dir ~/.hermes/skills
-hermes-curator-evolver candidates --query "gateway plugin restart" --skills-dir ~/.hermes/skills --execute-semantic --rerank --format json
-hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --format json
-```
-
-To make skills improve automatically without changing Hermes core, install the optional user timer:
-
-```bash
-# Writes ~/.config/systemd/user/hermes-curator-evolver-auto.{service,timer}
-hermes-curator-evolver install-auto --schedule daily --enable
-```
-
-The timer runs `auto-run --apply-low-risk --approve-auto-apply`: it only performs append-only managed updates, preserves the original skill text, writes backups, and records rollback manifests. Use `--proposal-only` if you want a non-mutating timer first.
-
-Disable/remove the automatic timer:
-
-```bash
-hermes-curator-evolver uninstall-auto
 ```
 
 If you only want a one-off CLI smoke test without installing the entrypoint, run:
@@ -113,8 +144,6 @@ If you only want a one-off CLI smoke test without installing the entrypoint, run
 PYTHONPATH=~/.hermes/plugins/curator-evolver \
   ~/.hermes/hermes-agent/venv/bin/python -m hermes_curator_evolver status
 ```
-
-Current Hermes versions can list and enable general plugins, but top-level `hermes <plugin>` CLI wiring may not expose general plugin commands yet. This plugin still registers `curator-evolver` through Hermes plugin APIs for forward compatibility; the stable command is `hermes-curator-evolver ...` after the editable CLI step above.
 
 ## Architecture
 

@@ -9,7 +9,7 @@
 [![Agents](https://img.shields.io/badge/Agents-skill%20governance-2563eb?style=flat-square)](https://github.com/pingchesu/hermes-curator-evolver)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![SQLite](https://img.shields.io/badge/SQLite-local%20evidence-003B57?style=flat-square&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
-[![Safety](https://img.shields.io/badge/v0.6-auto%20evolve%20%2B%20guarded%20apply-22c55e?style=flat-square)](#safety-model)
+[![Safety](https://img.shields.io/badge/v0.7-semantic%20autorun%20%2B%20guarded%20apply-22c55e?style=flat-square)](#safety-model)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](./LICENSE)
 
 | 🔎 Evidence first | 🧠 Model-aware roadmap | 🛡️ Guarded apply | 🔌 Hermes plugin |
@@ -63,16 +63,47 @@ Hermes skills are powerful, but a growing skill library can become noisy: stale 
 
 ## Quick start: open-box autorun
 
-If your goal is **"install it, then let Hermes skills improve by themselves"**, use this one path:
+If your goal is **"install it, then let Hermes skills improve by themselves"**, use this path. The only early choice is whether autorun should stay lightweight/model-free or use optional embedding + reranking for candidate ordering.
+
+### 1. Install the plugin and CLI
 
 ```bash
 hermes plugins install pingchesu/hermes-curator-evolver --enable
 uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e ~/.hermes/plugins/curator-evolver
+```
+
+Current Hermes plugin installs clone the repo into `~/.hermes/plugins/curator-evolver`; they do **not** install Python console scripts automatically yet, so the `uv pip install ... -e` line above is intentionally part of the quick start. Top-level `hermes <plugin>` CLI wiring may not expose general plugin commands yet; the stable command is `hermes-curator-evolver ...` after the editable CLI step.
+
+### 2. Choose your autorun mode
+
+| Mode | Command | Uses models? | Best for |
+| --- | --- | --- | --- |
+| **Default safe autorun** | `hermes-curator-evolver install-auto --schedule daily --enable` | No | Open-box install, no downloads, deterministic evidence thresholds. |
+| **Semantic + rerank autorun** | `hermes-curator-evolver install-auto --schedule daily --enable --semantic-candidates --rerank-candidates` | Yes, opt-in | Better candidate ordering when you are okay installing/running local semantic models. |
+
+Recommended default:
+
+```bash
 hermes-curator-evolver install-auto --schedule daily --enable
+```
+
+Optional model-assisted candidate ordering:
+
+```bash
+uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e "$HOME/.hermes/plugins/curator-evolver[semantic]"
+# Optional runtime tuning: default device is auto and ranking text is capped at 512 chars.
+# HERMES_CURATOR_EVOLVER_SEMANTIC_DEVICE=cpu|cuda|auto
+# HERMES_CURATOR_EVOLVER_SEMANTIC_TEXT_LIMIT=512
+hermes-curator-evolver install-auto --schedule daily --enable --semantic-candidates --rerank-candidates
+```
+
+Then restart Hermes so plugin hooks/tools are loaded:
+
+```bash
 hermes gateway restart
 ```
 
-That is the whole happy path. After this, the plugin runs daily through a user-level systemd timer and can append low-risk, evidence-backed notes to active skills without changing Hermes Agent core. See [docs/after-install.md](docs/after-install.md) for health checks, timer behavior, uninstall steps, and the currently supported model paths. See [docs/core-algorithm.md](docs/core-algorithm.md) for the exact algorithm and the current embedding/rerank boundary.
+That is the happy path. After this, the plugin runs daily through a user-level systemd timer and can append low-risk, evidence-backed notes to active skills without changing Hermes Agent core. See [docs/after-install.md](docs/after-install.md) for health checks, timer behavior, uninstall steps, and supported model paths. See [docs/core-algorithm.md](docs/core-algorithm.md) for the exact algorithm and embedding/rerank boundary.
 
 What gets installed:
 
@@ -82,17 +113,18 @@ What gets installed:
 | `hermes-curator-evolver` CLI | Provides report/proposal/apply/autorun commands. |
 | `hermes-curator-evolver-auto.timer` | Runs the autorun loop daily, so users do not need to remember commands. |
 
-What the daily autorun does:
+What daily autorun does:
 
 ```text
 observed skill usage/errors
   → local evidence.sqlite
-  → auto-run candidate selection
+  → evidence-eligible candidate set
+  → optional semantic/rerank ordering if explicitly selected
   → low-risk append-only SKILL.md note
   → backup + rollback manifest
 ```
 
-The timer runs the equivalent of:
+The default timer runs the equivalent of:
 
 ```bash
 hermes-curator-evolver auto-run \
@@ -102,6 +134,13 @@ hermes-curator-evolver auto-run \
   --approve-auto-apply
 ```
 
+The semantic/rerank timer adds:
+
+```bash
+  --semantic-candidates \
+  --rerank-candidates
+```
+
 Safety defaults:
 
 - It does **not** modify Hermes Agent source code.
@@ -109,12 +148,15 @@ Safety defaults:
 - It does **not** delete existing skill text.
 - It only writes managed append-only evidence notes.
 - It skips pinned skills and low-evidence changes.
+- Semantic/rerank can only reorder evidence-eligible candidates; it cannot directly generate write content.
+- Semantic model execution truncates ranking text and uses small embedding batches; if local model execution fails, autorun falls back to deterministic evidence ordering.
 - Every write has a backup and rollback manifest.
 
 To preview what autorun would do before enabling the timer:
 
 ```bash
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --format json
+hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --semantic-candidates --rerank-candidates --format json
 ```
 
 To stop the automatic loop:
@@ -122,8 +164,6 @@ To stop the automatic loop:
 ```bash
 hermes-curator-evolver uninstall-auto
 ```
-
-Current Hermes plugin installs clone the repo into `~/.hermes/plugins/curator-evolver`; they do **not** install Python console scripts automatically yet, so the `uv pip install ... -e` line above is intentionally part of the quick start. Top-level `hermes <plugin>` CLI wiring may not expose general plugin commands yet; the stable command is `hermes-curator-evolver ...` after the editable CLI step.
 
 ### Manual commands, if you want to inspect or review
 
@@ -173,6 +213,7 @@ flowchart LR
 | v0.3/v0.5 | `BAAI/bge-reranker-v2-m3` | Re-rank candidates, especially for mixed Chinese/English agent workflows. | Optional `--rerank`; no default download. |
 | v0.4 | Verifier + local validation command | Guard final reviewed content before apply. | Requires approval, backup, verification, rollback. |
 | v0.6 | None by default | Automatic low-risk append-only skill updates from observed evidence. | Optional `install-auto`; no Hermes core modification. |
+| v0.7 | `Qwen/Qwen3-Embedding-0.6B` + `BAAI/bge-reranker-v2-m3` | Optional model-assisted autorun candidate ordering. | Explicit `--semantic-candidates --rerank-candidates`; models only reorder evidence-eligible candidates. |
 
 ## Safety model
 
@@ -197,6 +238,7 @@ Hard defaults:
 - ✅ Apply creates a backup before writing.
 - ✅ Failed validation auto-restores the backup.
 - ✅ `auto-run` writes only managed append-only blocks and still requires both `--apply-low-risk` and `--approve-auto-apply` before mutation.
+- ✅ `--semantic-candidates` / `--rerank-candidates` are explicit opt-ins and only reorder skills that already passed the evidence threshold.
 
 ## CLI reference
 
@@ -232,8 +274,11 @@ hermes-curator-evolver rollback --manifest .curator-evolver-backups/<timestamp>/
 
 # Automatic evolution
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --format json                  # dry-run
+hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --semantic-candidates --rerank-candidates --format json
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply
+hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --semantic-candidates --rerank-candidates --apply-low-risk --approve-auto-apply
 hermes-curator-evolver install-auto --schedule daily --enable
+hermes-curator-evolver install-auto --schedule daily --enable --semantic-candidates --rerank-candidates
 hermes-curator-evolver uninstall-auto
 ```
 
@@ -315,6 +360,7 @@ export HERMES_CURATOR_EVOLVER_DB=/custom/path.sqlite
 - ✅ **v0.4** — guarded apply with explicit approval, backup, verification, and rollback.
 - ✅ **v0.5** — explicit model execution paths: Hermes chat-model drafts, Qwen embedding candidate ranking, and bge reranking.
 - ✅ **v0.6** — plug-and-play `auto-run` + optional systemd timer for low-risk append-only skill improvements without Hermes core changes.
+- ✅ **v0.7** — explicit `--semantic-candidates` / `--rerank-candidates` for model-assisted autorun candidate ordering.
 
 ---
 

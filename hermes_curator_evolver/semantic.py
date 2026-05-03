@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,8 @@ _EMBEDDING_MODEL = "Qwen3-Embedding-0.6B"
 _EMBEDDING_MODEL_ID = "Qwen/Qwen3-Embedding-0.6B"
 _RERANKER_MODEL = "bge-reranker-v2-m3"
 _RERANKER_MODEL_ID = "BAAI/bge-reranker-v2-m3"
+_DEFAULT_SEMANTIC_DEVICE = "auto"
+_DEFAULT_SEMANTIC_TEXT_LIMIT = 512
 
 
 def semantic_model_plan() -> dict[str, str]:
@@ -21,11 +24,35 @@ def semantic_model_plan() -> dict[str, str]:
         "reranker_model_id": _RERANKER_MODEL_ID,
         "purpose": "Candidate generation only: embed skill/evidence text, then rerank likely related skills before human/model review.",
         "default": "off; no model download is performed unless semantic execution is explicitly requested.",
+        "runtime_device": _semantic_device() or "auto",
+        "text_limit_chars": str(_semantic_text_limit()),
     }
 
 
 def _tokens(text: str) -> set[str]:
     return {token.lower() for token in re.findall(r"[\w-]+", text, flags=re.UNICODE) if len(token) > 1}
+
+
+def _semantic_device() -> str | None:
+    value = os.getenv("HERMES_CURATOR_EVOLVER_SEMANTIC_DEVICE", _DEFAULT_SEMANTIC_DEVICE).strip()
+    if not value or value.lower() == "auto":
+        return None
+    return value
+
+
+def _semantic_text_limit() -> int:
+    raw = os.getenv("HERMES_CURATOR_EVOLVER_SEMANTIC_TEXT_LIMIT", str(_DEFAULT_SEMANTIC_TEXT_LIMIT)).strip()
+    try:
+        return max(200, int(raw))
+    except ValueError:
+        return _DEFAULT_SEMANTIC_TEXT_LIMIT
+
+
+def _semantic_text(text: str) -> str:
+    limit = _semantic_text_limit()
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "\n...[truncated for semantic candidate ranking]"
 
 
 def _skill_files(skills_dir: Path) -> list[Path]:
@@ -95,7 +122,13 @@ def _cosine(left: list[float], right: list[float]) -> float:
 
 
 def _encode(backend: Any, texts: list[str]) -> list[list[float]]:
-    raw = backend.encode(texts, normalize_embeddings=False, show_progress_bar=False)
+    raw = backend.encode(
+        texts,
+        normalize_embeddings=False,
+        show_progress_bar=False,
+        batch_size=1,
+        convert_to_tensor=False,
+    )
     return _as_vectors(raw)
 
 
@@ -116,13 +149,15 @@ def _predict_rerank(backend: Any, pairs: list[tuple[str, str]]) -> list[float]:
 def _load_embedding_backend() -> Any:
     from sentence_transformers import SentenceTransformer
 
-    return SentenceTransformer(_EMBEDDING_MODEL_ID)
+    device = _semantic_device()
+    return SentenceTransformer(_EMBEDDING_MODEL_ID, device=device)
 
 
 def _load_reranker_backend() -> Any:
     from sentence_transformers import CrossEncoder
 
-    return CrossEncoder(_RERANKER_MODEL_ID)
+    device = _semantic_device()
+    return CrossEncoder(_RERANKER_MODEL_ID, device=device)
 
 
 def _semantic_candidates(
@@ -146,7 +181,7 @@ def _semantic_candidates(
             "candidates": [],
         }
 
-    texts = [query] + [str(row["text"]) for row in rows]
+    texts = [_semantic_text(query)] + [_semantic_text(str(row["text"])) for row in rows]
     vectors = _encode(embedding_backend, texts)
     query_vector, skill_vectors = vectors[0], vectors[1:]
     candidates: list[dict[str, Any]] = []
@@ -184,6 +219,7 @@ def _semantic_candidates(
         "mode": mode,
         "query": query,
         "models": {"embedding": _EMBEDDING_MODEL, "reranker": _RERANKER_MODEL},
+        "runtime": {"device": _semantic_device() or "auto", "text_limit_chars": _semantic_text_limit()},
         "model_downloaded": model_downloaded,
         "model_executed": True,
         "reranker_executed": reranker_executed,
@@ -241,14 +277,27 @@ def find_skill_candidates(
                     "error": str(exc),
                 }
         if embedding_backend is not None:
-            return _semantic_candidates(
-                query=query,
-                skills_dir=path,
-                limit=bounded_limit,
-                embedding_backend=embedding_backend,
-                reranker_backend=reranker_backend,
-                model_downloaded="unknown" if load_models else False,
-            )
+            try:
+                return _semantic_candidates(
+                    query=query,
+                    skills_dir=path,
+                    limit=bounded_limit,
+                    embedding_backend=embedding_backend,
+                    reranker_backend=reranker_backend,
+                    model_downloaded="unknown" if load_models else False,
+                )
+            except Exception as exc:  # pragma: no cover - depends on local ML runtime
+                return {
+                    "mode": "semantic-execution-unavailable",
+                    "query": query,
+                    "models": {"embedding": plan["embedding"], "reranker": plan["reranker"]},
+                    "runtime": {"device": _semantic_device() or "auto", "text_limit_chars": _semantic_text_limit()},
+                    "model_downloaded": "unknown" if load_models else False,
+                    "model_executed": False,
+                    "reranker_executed": False,
+                    "candidates": [],
+                    "error": str(exc),
+                }
         return {
             "mode": "semantic-plan",
             "query": query,

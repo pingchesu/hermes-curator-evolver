@@ -5,6 +5,7 @@ from hermes_curator_evolver.auto_evolve import (
     AutoEvolveConfig,
     build_low_risk_skill_update,
     discover_skill_files,
+    install_auto_timer,
     run_auto_evolve,
 )
 from hermes_curator_evolver.guarded_apply import sha256_file
@@ -154,6 +155,146 @@ def test_auto_evolve_refuses_apply_without_auto_approval(tmp_path):
     assert result["summary"]["applied"] == 0
     assert result["candidates"][0]["apply_result"]["reason"] == "auto-approval-required"
     assert sha256_file(skill_file) == original_hash
+
+
+def test_auto_evolve_skips_pinned_skills_even_with_auto_approval(tmp_path):
+    db = tmp_path / "evidence.sqlite"
+    store = EvidenceStore(db)
+    skills = tmp_path / "skills"
+    skill_file = _write_skill(skills, "hermes-agent")
+    text = skill_file.read_text(encoding="utf-8")
+    skill_file.write_text(text.replace("description: test skill", "description: test skill\npin: true"), encoding="utf-8")
+    original_hash = sha256_file(skill_file)
+    store.record_tool_call(
+        tool_name="skill_view",
+        args={"name": "hermes-agent"},
+        result={"success": True},
+        session_id="s1",
+    )
+
+    result = run_auto_evolve(
+        AutoEvolveConfig(
+            db_path=db,
+            skills_dir=skills,
+            days=30,
+            min_evidence=1,
+            apply_low_risk=True,
+            approve_auto_apply=True,
+        )
+    )
+
+    assert result["summary"]["applied"] == 0
+    assert result["summary"]["skipped"] == 1
+    assert result["candidates"][0]["reason"] == "pinned-skill"
+    assert sha256_file(skill_file) == original_hash
+
+
+class FakeEmbeddingBackend:
+    def encode(self, texts, **kwargs):
+        vectors = []
+        for text in texts:
+            lowered = text.lower()
+            if "gateway" in lowered or "restart" in lowered:
+                vectors.append([1.0, 0.0])
+            elif "music" in lowered:
+                vectors.append([0.0, 1.0])
+            else:
+                vectors.append([0.2, 0.2])
+        return vectors
+
+
+class FakeRerankerBackend:
+    def predict(self, pairs):
+        return [10.0 if "plugin" in text.lower() else 1.0 for _query, text in pairs]
+
+
+def test_auto_evolve_semantic_rerank_reorders_evidence_eligible_skills(tmp_path):
+    db = tmp_path / "evidence.sqlite"
+    store = EvidenceStore(db)
+    skills = tmp_path / "skills"
+    _write_skill(skills, "plain-gateway", "Troubleshoot gateway restart.")
+    _write_skill(skills, "plugin-gateway", "Troubleshoot gateway restart and plugin CLI wiring.")
+    store.record_tool_call(
+        tool_name="terminal",
+        args={"skills": ["plain-gateway"]},
+        result={"exit_code": 1, "output": "gateway restart failed"},
+        session_id="s1",
+    )
+    store.record_tool_call(
+        tool_name="terminal",
+        args={"skills": ["plugin-gateway"]},
+        result={"exit_code": 1, "output": "gateway plugin restart failed"},
+        session_id="s2",
+    )
+
+    result = run_auto_evolve(
+        AutoEvolveConfig(
+            db_path=db,
+            skills_dir=skills,
+            days=30,
+            min_evidence=1,
+            max_skills=2,
+            semantic_candidates=True,
+            rerank_candidates=True,
+            embedding_backend=FakeEmbeddingBackend(),
+            reranker_backend=FakeRerankerBackend(),
+        )
+    )
+
+    assert result["selection"]["mode"] == "semantic-reranked"
+    assert result["selection"]["models"]["embedding"] == "Qwen3-Embedding-0.6B"
+    assert result["selection"]["models"]["reranker"] == "bge-reranker-v2-m3"
+    assert result["candidates"][0]["skill_name"] == "plugin-gateway"
+    assert result["candidates"][0]["selection"]["score"] == 10.0
+    assert "reranker relevance score" in result["candidates"][0]["selection"]["reasons"]
+
+
+def test_auto_evolve_semantic_does_not_select_skills_without_evidence_threshold(tmp_path):
+    db = tmp_path / "evidence.sqlite"
+    store = EvidenceStore(db)
+    skills = tmp_path / "skills"
+    _write_skill(skills, "plain-gateway", "Troubleshoot gateway restart.")
+    _write_skill(skills, "plugin-gateway", "Troubleshoot gateway restart and plugin CLI wiring.")
+    store.record_tool_call(
+        tool_name="terminal",
+        args={"skills": ["plain-gateway"]},
+        result={"exit_code": 1, "output": "gateway restart failed"},
+        session_id="s1",
+    )
+
+    result = run_auto_evolve(
+        AutoEvolveConfig(
+            db_path=db,
+            skills_dir=skills,
+            days=30,
+            min_evidence=1,
+            max_skills=2,
+            semantic_candidates=True,
+            embedding_backend=FakeEmbeddingBackend(),
+        )
+    )
+
+    assert [candidate["skill_name"] for candidate in result["candidates"]] == ["plain-gateway"]
+    assert result["selection"]["eligible_skill_count"] == 1
+
+
+def test_install_auto_timer_can_opt_into_semantic_and_rerank_candidates(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    result = install_auto_timer(
+        schedule="daily",
+        skills_dir=tmp_path / "skills",
+        enable=False,
+        rerank_candidates=True,
+    )
+
+    command = result["command"]
+    timer_text = Path(result["timer_path"]).read_text(encoding="utf-8")
+    service_text = Path(result["service_path"]).read_text(encoding="utf-8")
+    assert "--semantic-candidates" in command
+    assert "--rerank-candidates" in command
+    assert "--semantic-candidates" in service_text
+    assert "OnCalendar=daily" in timer_text
 
 
 def test_auto_evolve_json_serializable(tmp_path):

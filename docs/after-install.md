@@ -25,12 +25,13 @@ After that:
 
 ## What autorun actually does
 
-Daily autorun is intentionally narrow. It learns from observed Hermes usage and only applies low-risk managed notes to skills. **In v0.6, autorun does not use embedding or reranking; those are available only in the separate advisory `candidates` command.** For the exact algorithm, see [core-algorithm.md](core-algorithm.md).
+Daily autorun is intentionally narrow. It learns from observed Hermes usage and only applies low-risk managed notes to skills. By default it is deterministic and model-free. If the user explicitly chooses `--semantic-candidates` / `--rerank-candidates`, autorun uses embedding/rerank only to reorder skills that already passed the evidence threshold. For the exact algorithm, see [core-algorithm.md](core-algorithm.md).
 
 ```text
 Hermes sessions / tool calls / skill usage
   → curator-evolver evidence.sqlite
-  → candidate selection for active skills
+  → evidence-eligible candidate set
+  → optional semantic/rerank ordering if explicitly selected
   → append-only managed SKILL.md evidence note
   → backup + rollback manifest
 ```
@@ -45,7 +46,19 @@ hermes-curator-evolver auto-run \
   --approve-auto-apply
 ```
 
-Autorun does **not** rewrite whole skills, delete existing content, change Hermes Agent core, or mutate pinned skills.
+The semantic/rerank timer adds:
+
+```bash
+hermes-curator-evolver auto-run \
+  --skills-dir ~/.hermes/skills \
+  --format json \
+  --semantic-candidates \
+  --rerank-candidates \
+  --apply-low-risk \
+  --approve-auto-apply
+```
+
+Autorun does **not** rewrite whole skills, delete existing content, change Hermes Agent core, or mutate pinned skills. If semantic/rerank model execution fails locally, autorun records the error and falls back to deterministic evidence ordering instead of crashing.
 
 ## Health checks
 
@@ -65,6 +78,7 @@ Preview what the next autorun would do without changing files:
 
 ```bash
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --format json
+hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --semantic-candidates --rerank-candidates --format json
 ```
 
 Check the user timer:
@@ -88,7 +102,7 @@ The plugin is designed so the default autorun path does **not** require a model.
 | Feature | Model support | Default |
 | --- | --- | --- |
 | Evidence collection | None. Local SQLite aggregation only. | Always on when plugin hooks run. |
-| Daily autorun | **No embedding/rerank in v0.6.** Uses deterministic evidence thresholds and append-only patch policy. | No model download or inference. |
+| Daily autorun | Model-free by default; optional `--semantic-candidates --rerank-candidates` uses the same embedding/reranker models only to reorder evidence-eligible candidates. | No model download unless semantic/rerank autorun is explicitly selected. |
 | Proposal drafting | The active Hermes configured chat model/provider. The plugin does not hardcode OpenAI, Anthropic, or a local model. | Off unless `--draft-with-model` is passed. |
 | Verifier | Deterministic verifier today; future verifier prompt should use Hermes configured chat model. | Deterministic, no model required. |
 | Candidate embedding search | `Qwen/Qwen3-Embedding-0.6B` through `sentence-transformers`. | Off unless `--execute-semantic` is passed. |
@@ -97,7 +111,10 @@ The plugin is designed so the default autorun path does **not** require a model.
 Install optional semantic dependencies only if you want embedding/reranker candidate search:
 
 ```bash
-uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e '~/.hermes/plugins/curator-evolver[semantic]'
+uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e "$HOME/.hermes/plugins/curator-evolver[semantic]"
+# Optional runtime tuning:
+# HERMES_CURATOR_EVOLVER_SEMANTIC_DEVICE=cpu|cuda|auto
+# HERMES_CURATOR_EVOLVER_SEMANTIC_TEXT_LIMIT=512
 ```
 
 Then run semantic candidate search explicitly:
@@ -111,11 +128,20 @@ hermes-curator-evolver candidates \
   --format json
 ```
 
+Or opt the automatic timer into semantic/rerank candidate ordering:
+
+```bash
+hermes-curator-evolver install-auto --schedule daily --enable --semantic-candidates --rerank-candidates
+```
+
 Important model boundaries:
 
 - Models help find or draft candidate improvements; they do not get unilateral write access.
 - `auto-run` low-risk writes are deterministic and append-only by default.
+- In semantic/rerank autorun, model scores only reorder candidates that already passed the evidence threshold.
 - Semantic models are never downloaded unless the user explicitly asks for semantic execution.
+- Semantic ranking truncates SKILL.md text to `HERMES_CURATOR_EVOLVER_SEMANTIC_TEXT_LIMIT` characters, default `512`, and uses `batch_size=1` to avoid local GPU/CPU memory spikes.
+- Semantic runtime device is configurable with `HERMES_CURATOR_EVOLVER_SEMANTIC_DEVICE` (`auto`, `cpu`, or `cuda`; default `auto`).
 - The chat model path follows the user's Hermes configuration instead of plugin-specific credentials.
 
 ## Stop or uninstall

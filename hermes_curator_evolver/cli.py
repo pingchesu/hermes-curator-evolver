@@ -115,6 +115,16 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
     auto_run.add_argument("--backup-dir", help="Backup root for guarded apply")
     auto_run.add_argument("--max-skills", type=int, default=3, help="Max skills to consider")
     auto_run.add_argument("--min-evidence", type=int, default=2, help="Minimum skill evidence count")
+    auto_run.add_argument(
+        "--semantic-candidates",
+        action="store_true",
+        help="Opt into embedding-backed candidate ordering for this auto-run pass",
+    )
+    auto_run.add_argument(
+        "--rerank-candidates",
+        action="store_true",
+        help="Opt into reranker-backed candidate ordering; implies --semantic-candidates",
+    )
     auto_run.add_argument("--apply-low-risk", action="store_true", help="Apply low-risk append-only updates")
     auto_run.add_argument(
         "--approve-auto-apply",
@@ -132,6 +142,16 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
     install_auto.add_argument("--schedule", default="daily", help="systemd OnCalendar value or hourly/daily/weekly")
     install_auto.add_argument("--skills-dir", help="Skills root for the timer command")
     install_auto.add_argument("--proposal-only", action="store_true", help="Timer runs dry-run instead of applying low-risk updates")
+    install_auto.add_argument(
+        "--semantic-candidates",
+        action="store_true",
+        help="Timer uses embedding-backed candidate ordering; opt-in because it may load models",
+    )
+    install_auto.add_argument(
+        "--rerank-candidates",
+        action="store_true",
+        help="Timer uses reranker-backed candidate ordering; implies --semantic-candidates",
+    )
     install_auto.add_argument("--enable", action="store_true", help="Enable and start the timer now")
     install_auto.set_defaults(func=handle_cli)
 
@@ -256,6 +276,8 @@ def handle_cli(args: argparse.Namespace) -> None:
                 min_evidence=int(values.get("min_evidence") or 2),
                 apply_low_risk=bool(values.get("apply_low_risk")),
                 approve_auto_apply=bool(values.get("approve_auto_apply")),
+                semantic_candidates=bool(values.get("semantic_candidates") or values.get("rerank_candidates")),
+                rerank_candidates=bool(values.get("rerank_candidates")),
                 verify_command=values.get("verify_command"),
                 verify_cwd=values.get("verify_cwd"),
             )
@@ -269,6 +291,8 @@ def handle_cli(args: argparse.Namespace) -> None:
             skills_dir=values.get("skills_dir"),
             apply_low_risk=not bool(values.get("proposal_only")),
             enable=bool(values.get("enable")),
+            semantic_candidates=bool(values.get("semantic_candidates") or values.get("rerank_candidates")),
+            rerank_candidates=bool(values.get("rerank_candidates")),
         )
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
         return

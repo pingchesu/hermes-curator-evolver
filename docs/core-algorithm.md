@@ -1,22 +1,24 @@
 # Core algorithm: evidence, candidate selection, and autorun
 
-This document explains the current `hermes-curator-evolver` algorithm in plain terms, including exactly where embedding and reranking are supported today.
+This document explains the current `hermes-curator-evolver` algorithm in plain terms, including exactly where embedding and reranking are supported.
 
 ## Short answer
 
 | Path | Uses embedding? | Uses reranker? | Can write skills? | Purpose |
 | --- | --- | --- | --- | --- |
-| `auto-run` / `install-auto` daily timer | **No** in v0.6 | **No** in v0.6 | Yes, only append-only low-risk blocks when explicitly enabled | Safe automatic skill improvement. |
+| `auto-run` / `install-auto` default | No | No | Yes, only append-only low-risk blocks when explicitly enabled | Safe automatic skill improvement with deterministic evidence thresholds. |
+| `auto-run --semantic-candidates` | Yes: `Qwen/Qwen3-Embedding-0.6B` | No unless `--rerank-candidates` | Yes, but only after the same write flags | Model-assisted ordering of evidence-eligible skills. |
+| `auto-run --semantic-candidates --rerank-candidates` | Yes | Yes: `BAAI/bge-reranker-v2-m3` | Yes, but only after the same write flags | Embedding + reranker ordering of evidence-eligible skills. |
 | `candidates --execute-semantic` | Yes: `Qwen/Qwen3-Embedding-0.6B` | No unless `--rerank` | No | Manual/review candidate discovery. |
 | `candidates --execute-semantic --rerank` | Yes | Yes: `BAAI/bge-reranker-v2-m3` | No | Better manual/review ranking. |
 | `propose --draft-with-model` | Uses Hermes configured chat model | No | No | Draft a reviewable proposal artifact. |
 | `apply` | No | No | Yes, after explicit approval/hash/backup gates | Apply reviewed content. |
 
-So, **current v0.6 autorun does not yet run embedding or reranking**. The semantic models exist in the repo for the separate `candidates` command, not in the automatic write path.
+Default autorun remains model-free. Embedding/rerank autorun is now explicit opt-in and can only reorder candidates that already passed the evidence threshold; model output does not generate write content.
 
-That separation is intentional for v0.6: the automatic unattended path is deterministic and conservative, while model-backed ranking stays advisory until it has more guardrails.
+Semantic execution is runtime-guarded for local machines: texts are truncated for candidate ranking (`HERMES_CURATOR_EVOLVER_SEMANTIC_TEXT_LIMIT`, default `512` chars), embedding batches run one at a time, and model runtime device is configurable with `HERMES_CURATOR_EVOLVER_SEMANTIC_DEVICE` (default `auto`; set `cpu` or `cuda` explicitly if needed). If local model execution fails, `auto-run` falls back to deterministic evidence ordering instead of crashing.
 
-## Current v0.6 autorun algorithm
+## Current autorun algorithm
 
 `auto-run` is implemented in `hermes_curator_evolver/auto_evolve.py`.
 
@@ -27,24 +29,34 @@ That separation is intentional for v0.6: the automatic unattended path is determ
 - Lookback window: default `--days 7`
 - Candidate cap: default `--max-skills 3`
 - Minimum evidence threshold: default `--min-evidence 2`
+- Optional candidate ordering: `--semantic-candidates`, `--rerank-candidates`
 
 ### Steps
 
 ```text
 1. Build aggregate evidence report for the lookback window.
 2. Read report.summary.skills.
-3. Select skills with event_count >= min_evidence, up to max_skills.
-4. Discover matching SKILL.md files under the skills directory.
-5. For each selected skill:
+3. Build an evidence-eligible candidate set:
+   skill.event_count >= min_evidence.
+4. If semantic/rerank is not requested:
+   order candidates by deterministic evidence summary order.
+5. If semantic/rerank is requested:
+   a. Build an evidence query from eligible skill counts and recent evidence rows.
+   b. Run embedding candidate search over SKILL.md files.
+   c. Optionally run reranker on query/skill pairs.
+   d. Keep only skills from the evidence-eligible set.
+   e. Use model scores only to reorder those eligible skills.
+6. Discover matching SKILL.md files under the skills directory.
+7. For each selected skill:
    a. Build a per-skill evidence report.
    b. Read the current SKILL.md.
    c. Generate/update a managed curator-evolver:auto block.
    d. Preserve all existing skill text outside that block.
-6. If --apply-low-risk is not set:
+8. If --apply-low-risk is not set:
    return dry-run plan only.
-7. If --apply-low-risk is set but --approve-auto-apply is missing:
+9. If --apply-low-risk is set but --approve-auto-apply is missing:
    refuse to write.
-8. If both write flags are set:
+10. If both write flags are set:
    apply through guarded apply with SHA256 check, backup, optional verify command, and rollback manifest.
 ```
 
@@ -52,14 +64,27 @@ That separation is intentional for v0.6: the automatic unattended path is determ
 
 ```python
 report = build_report(store, days=days)
-skill_files = discover_skill_files(skills_dir)
-names = [
+eligible = [
     row.skill_name
     for row in report.summary.skills
     if row.event_count >= min_evidence
-][:max_skills]
+]
 
-for name in names:
+if semantic_candidates or rerank_candidates:
+    query = build_semantic_query(report, eligible)
+    ranked = find_skill_candidates(
+        query=query,
+        skills_dir=skills_dir,
+        semantic=True,
+        load_models=True,
+        load_reranker=rerank_candidates,
+    )
+    names = [item.skill_name for item in ranked if item.skill_name in eligible][:max_skills]
+    names += [name for name in eligible if name not in names]
+else:
+    names = eligible
+
+for name in names[:max_skills]:
     skill_file = skill_files.get(name)
     skill_report = build_report(store, days=days, skill=name)
     original = read(skill_file)
@@ -110,11 +135,62 @@ These notes are evidence summaries for future agents; they do not replace human-
 
 If the block already exists, autorun replaces only that managed block. It does not rewrite the rest of the skill.
 
-## Where embedding and reranking are used today
+## Embedding/rerank autorun choice
 
-Semantic ranking is implemented in `hermes_curator_evolver/semantic.py` and exposed through the `candidates` command.
+### Default model-free timer
 
-### Plan-only semantic mode
+```bash
+hermes-curator-evolver install-auto --schedule daily --enable
+```
+
+Equivalent auto-run:
+
+```bash
+hermes-curator-evolver auto-run \
+  --skills-dir ~/.hermes/skills \
+  --format json \
+  --apply-low-risk \
+  --approve-auto-apply
+```
+
+### Semantic/rerank timer
+
+Install optional model dependencies first:
+
+```bash
+uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e "$HOME/.hermes/plugins/curator-evolver[semantic]"
+```
+
+Then opt in:
+
+```bash
+hermes-curator-evolver install-auto \
+  --schedule daily \
+  --enable \
+  --semantic-candidates \
+  --rerank-candidates
+```
+
+Equivalent auto-run:
+
+```bash
+hermes-curator-evolver auto-run \
+  --skills-dir ~/.hermes/skills \
+  --format json \
+  --semantic-candidates \
+  --rerank-candidates \
+  --apply-low-risk \
+  --approve-auto-apply
+```
+
+## Where embedding and reranking are used
+
+Semantic ranking is implemented in `hermes_curator_evolver/semantic.py` and reused by both:
+
+1. The advisory `candidates` command.
+2. The opt-in `auto-run --semantic-candidates` / `--rerank-candidates` path.
+
+### Plan-only semantic mode for review
 
 ```bash
 hermes-curator-evolver candidates \
@@ -161,46 +237,26 @@ BAAI/bge-reranker-v2-m3
 
 The embedding model finds likely candidates first, then the reranker scores query/skill pairs.
 
-## Why autorun does not use models yet
-
-Unattended writes have a higher safety bar than advisory ranking. v0.6 keeps autorun deterministic because:
-
-1. It is easier to explain and audit.
-2. It does not download models on a user's machine unexpectedly.
-3. It avoids letting model similarity directly decide which files get mutated.
-4. It keeps open-box install lightweight and dependency-free.
-5. It makes rollback and debugging simpler.
-
-## Planned v0.7 direction
-
-The likely next step is optional model-assisted autorun candidate selection, but still with strict boundaries:
-
-```bash
-hermes-curator-evolver auto-run \
-  --semantic-candidates \
-  --rerank-candidates \
-  --format json
-```
-
-Proposed safety contract:
+## Safety contract for model-assisted autorun
 
 - Default autorun remains deterministic and model-free.
-- Semantic/rerank autorun starts as dry-run only.
-- Model output can only influence candidate ranking, not write content directly.
+- `--semantic-candidates` and `--rerank-candidates` are explicit opt-ins.
+- Model output can only influence candidate ordering, not write content directly.
+- Model-ranked skills must already satisfy `min_evidence`.
 - Writes still require `--apply-low-risk --approve-auto-apply`.
-- Output must include model names, scores, and reasons for each candidate.
-- Timer install should stay model-free unless the user explicitly opts in.
+- Output includes selection mode, model names, scores, and reasons for each candidate.
+- Timer install stays model-free unless the user explicitly opts in.
 
 ## Mental model
 
-Think of the current system as two lanes:
+Think of the current system as two lanes that now meet at the candidate-ordering step:
 
 ```text
-Lane A — safe automation today
-Evidence counts → deterministic candidate selection → append-only notes → guarded apply
+Lane A — safe automation default
+Evidence counts → deterministic candidate ordering → append-only notes → guarded apply
 
-Lane B — model-assisted review today
-Query/evidence text → embedding/rerank candidates → human/model proposal review → guarded apply
+Lane B — model-assisted ordering opt-in
+Evidence-eligible candidates → embedding/rerank ordering → append-only notes → guarded apply
 ```
 
-v0.6 ships both lanes, but only Lane A is wired into daily autorun.
+Models can improve which eligible skill is considered first, but they cannot bypass evidence thresholds or guarded apply.

@@ -42,7 +42,7 @@ The safety rule is simple: everything before `Apply` is non-mutating; `Apply` re
 | Reports | Shows which skills/tools produced useful or problematic evidence. |
 | Candidate search | Finds likely related skills with lexical search by default; semantic models are opt-in only. |
 | Proposal | Produces dry-run review artifacts grounded in evidence. |
-| Auto-run | Selects active evidence-backed skills with deterministic evidence thresholds by default. With `--semantic-candidates --rerank-candidates`, it can use embedding/rerank to reorder only evidence-eligible skills before preparing low-risk managed append-only notes. |
+| Auto-run | Selects active evidence-backed skills with deterministic evidence thresholds by default. With `--semantic-candidates --rerank-candidates`, it can use embedding/rerank to reorder only evidence-eligible skills before preparing low-risk managed append-only notes. Unattended writes are non-core-only by default. |
 | Verifier | Blocks ungrounded, mutating, or destructive proposals. |
 | Guarded apply | Writes reviewed content only after approval/hash/backup/verify gates. |
 
@@ -101,6 +101,7 @@ Hard rules:
 - Guarded apply creates a backup and manifest before writing.
 - Failed validation restores the backup automatically.
 - Auto-run mutates only when both `--apply-low-risk` and `--approve-auto-apply` are provided.
+- Even then, auto-run skips core Hermes/workflow skills by default; use `--allow-auto-apply-skill <pattern>` only after explicit review.
 - Auto-run preserves existing skill text and writes only a managed `curator-evolver:auto` block.
 
 ## Current commands

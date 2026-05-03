@@ -132,6 +132,33 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Required with --apply-low-risk before any file writes occur",
     )
+    auto_run.add_argument(
+        "--protect-core-skills",
+        dest="protect_core_skills",
+        action="store_true",
+        default=True,
+        help="Skip unattended writes to core Hermes/workflow skills (default)",
+    )
+    auto_run.add_argument(
+        "--no-protect-core-skills",
+        dest="protect_core_skills",
+        action="store_false",
+        help="Allow unattended writes to core skills; use only after explicit review",
+    )
+    auto_run.add_argument(
+        "--allow-auto-apply-skill",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help="Glob pattern that may auto-apply; also explicitly permits matching core skills",
+    )
+    auto_run.add_argument(
+        "--block-auto-apply-skill",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help="Glob pattern that must never auto-apply in unattended mode",
+    )
     auto_run.add_argument("--verify-command", help="Optional command to validate after each apply")
     auto_run.add_argument("--verify-cwd", help="Working directory for verification command")
     auto_run.add_argument(
@@ -152,6 +179,33 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
     install_auto.add_argument("--schedule", default="daily", help="systemd OnCalendar value or hourly/daily/weekly")
     install_auto.add_argument("--skills-dir", help="Skills root for the timer command")
     install_auto.add_argument("--proposal-only", action="store_true", help="Timer runs dry-run instead of applying low-risk updates")
+    install_auto.add_argument(
+        "--protect-core-skills",
+        dest="protect_core_skills",
+        action="store_true",
+        default=True,
+        help="Timer skips unattended writes to core Hermes/workflow skills (default)",
+    )
+    install_auto.add_argument(
+        "--no-protect-core-skills",
+        dest="protect_core_skills",
+        action="store_false",
+        help="Timer may write core skills; use only after explicit review",
+    )
+    install_auto.add_argument(
+        "--allow-auto-apply-skill",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help="Timer auto-apply allowlist glob; matching core skills are explicitly permitted",
+    )
+    install_auto.add_argument(
+        "--block-auto-apply-skill",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help="Timer auto-apply blocklist glob",
+    )
     install_auto.add_argument(
         "--semantic-candidates",
         action="store_true",
@@ -290,6 +344,9 @@ def handle_cli(args: argparse.Namespace) -> None:
                 rerank_candidates=bool(values.get("rerank_candidates")),
                 verify_command=values.get("verify_command"),
                 verify_cwd=values.get("verify_cwd"),
+                protect_core_skills=bool(values.get("protect_core_skills")),
+                auto_apply_allowlist=tuple(values.get("allow_auto_apply_skill") or ()),
+                auto_apply_blocklist=tuple(values.get("block_auto_apply_skill") or ()),
             )
         )
         print(format_auto_evolve_result(result, output_format=values.get("format") or "markdown"))
@@ -324,6 +381,9 @@ def handle_cli(args: argparse.Namespace) -> None:
             enable=bool(values.get("enable")),
             semantic_candidates=bool(values.get("semantic_candidates") or values.get("rerank_candidates")),
             rerank_candidates=bool(values.get("rerank_candidates")),
+            protect_core_skills=bool(values.get("protect_core_skills")),
+            auto_apply_allowlist=tuple(values.get("allow_auto_apply_skill") or ()),
+            auto_apply_blocklist=tuple(values.get("block_auto_apply_skill") or ()),
         )
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
         return

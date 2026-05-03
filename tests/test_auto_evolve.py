@@ -100,10 +100,10 @@ def test_auto_evolve_apply_low_risk_updates_skill_with_backup(tmp_path):
     store = EvidenceStore(db)
     skills = tmp_path / "skills"
     backups = tmp_path / "backups"
-    skill_file = _write_skill(skills, "hermes-agent")
+    skill_file = _write_skill(skills, "store-playbook")
     store.record_tool_call(
         tool_name="skill_view",
-        args={"name": "hermes-agent"},
+        args={"name": "store-playbook"},
         result={"success": True},
         session_id="s1",
     )
@@ -295,6 +295,132 @@ def test_install_auto_timer_can_opt_into_semantic_and_rerank_candidates(tmp_path
     assert "--rerank-candidates" in command
     assert "--semantic-candidates" in service_text
     assert "OnCalendar=daily" in timer_text
+
+
+def test_auto_evolve_auto_apply_skips_core_skills_by_default_but_applies_non_core(tmp_path):
+    db = tmp_path / "evidence.sqlite"
+    store = EvidenceStore(db)
+    skills = tmp_path / "skills"
+    backups = tmp_path / "backups"
+    core_file = _write_skill(skills, "hermes-agent", "Hermes runtime and skill loading operations.")
+    non_core_file = _write_skill(skills, "store-playbook", "Store operations playbook.")
+    core_hash = sha256_file(core_file)
+
+    for skill in ("hermes-agent", "store-playbook"):
+        store.record_tool_call(
+            tool_name="skill_view",
+            args={"name": skill},
+            result={"success": True},
+            session_id=f"s-{skill}",
+        )
+
+    result = run_auto_evolve(
+        AutoEvolveConfig(
+            db_path=db,
+            skills_dir=skills,
+            backup_dir=backups,
+            days=30,
+            min_evidence=1,
+            max_skills=5,
+            apply_low_risk=True,
+            approve_auto_apply=True,
+        )
+    )
+
+    by_name = {candidate["skill_name"]: candidate for candidate in result["candidates"]}
+    assert result["safety"]["protect_core_skills"] is True
+    assert result["safety"]["auto_apply_policy"] == "non-core-skills-only-by-default"
+    assert by_name["hermes-agent"]["status"] == "skipped"
+    assert by_name["hermes-agent"]["reason"] == "core-skill-auto-apply-protected"
+    assert "apply_result" not in by_name["hermes-agent"]
+    assert by_name["store-playbook"]["status"] == "applied"
+    assert by_name["store-playbook"]["apply_result"]["applied"] is True
+    assert result["summary"]["applied"] == 1
+    assert sha256_file(core_file) == core_hash
+    assert "Auto-curated evidence notes" in non_core_file.read_text(encoding="utf-8")
+
+
+def test_auto_evolve_dry_run_still_plans_core_skills_for_review(tmp_path):
+    db = tmp_path / "evidence.sqlite"
+    store = EvidenceStore(db)
+    skills = tmp_path / "skills"
+    skill_file = _write_skill(skills, "hermes-agent")
+    original_hash = sha256_file(skill_file)
+    store.record_tool_call(
+        tool_name="skill_view",
+        args={"name": "hermes-agent"},
+        result={"success": True},
+        session_id="s1",
+    )
+
+    result = run_auto_evolve(
+        AutoEvolveConfig(
+            db_path=db,
+            skills_dir=skills,
+            days=30,
+            min_evidence=1,
+            apply_low_risk=False,
+        )
+    )
+
+    assert result["mode"] == "dry-run"
+    assert result["candidates"][0]["skill_name"] == "hermes-agent"
+    assert result["candidates"][0]["status"] == "planned"
+    assert result["summary"]["planned"] == 1
+    assert sha256_file(skill_file) == original_hash
+
+
+def test_auto_evolve_allowlist_can_explicitly_permit_one_core_skill(tmp_path):
+    db = tmp_path / "evidence.sqlite"
+    store = EvidenceStore(db)
+    skills = tmp_path / "skills"
+    backups = tmp_path / "backups"
+    skill_file = _write_skill(skills, "hermes-agent")
+    store.record_tool_call(
+        tool_name="skill_view",
+        args={"name": "hermes-agent"},
+        result={"success": True},
+        session_id="s1",
+    )
+
+    result = run_auto_evolve(
+        AutoEvolveConfig(
+            db_path=db,
+            skills_dir=skills,
+            backup_dir=backups,
+            days=30,
+            min_evidence=1,
+            apply_low_risk=True,
+            approve_auto_apply=True,
+            auto_apply_allowlist=("hermes-agent",),
+        )
+    )
+
+    assert result["summary"]["applied"] == 1
+    assert result["candidates"][0]["status"] == "applied"
+    assert result["candidates"][0]["apply_result"]["applied"] is True
+    assert "Auto-curated evidence notes" in skill_file.read_text(encoding="utf-8")
+
+
+def test_install_auto_timer_emits_explicit_core_protection_policy(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    result = install_auto_timer(
+        schedule="daily",
+        skills_dir=tmp_path / "skills",
+        enable=False,
+        rerank_candidates=True,
+        auto_apply_blocklist=("github-*",),
+    )
+
+    command = result["command"]
+    service_text = Path(result["service_path"]).read_text(encoding="utf-8")
+    assert "--apply-low-risk" in command
+    assert "--approve-auto-apply" in command
+    assert "--protect-core-skills" in command
+    assert "--block-auto-apply-skill github-*" in command
+    assert result["protect_core_skills"] is True
+    assert "--protect-core-skills" in service_text
 
 
 def test_auto_evolve_json_serializable(tmp_path):

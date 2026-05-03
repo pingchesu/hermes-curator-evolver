@@ -51,7 +51,7 @@ hermes-curator-evolver install-auto --schedule daily --enable
 hermes gateway restart
 ```
 
-That installs the plugin, imports your recent Hermes history, and enables a daily user-level timer that appends low-risk evidence notes to skills.
+That installs the plugin, imports your recent Hermes history, and enables a daily user-level timer that appends low-risk evidence notes to **non-core** skills. Core Hermes/workflow skills are still analyzed, but skipped for unattended writes by default.
 
 Want smarter candidate ordering for larger or multilingual skill libraries?
 
@@ -60,7 +60,7 @@ uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e "$HOME/.hermes
 hermes-curator-evolver install-auto --schedule daily --enable --semantic-candidates --rerank-candidates
 ```
 
-Semantic mode is still conservative: embeddings/rerankers only reorder candidates that already passed evidence thresholds. They do not write content by themselves.
+Semantic mode is still conservative: embeddings/rerankers only reorder candidates that already passed evidence thresholds. They do not write content by themselves, and core-skill auto-apply protection still applies.
 
 Useful one-liners:
 
@@ -84,7 +84,7 @@ Notes:
 | **I want it to feel automatic** | `install-auto --enable` creates a daily autorun timer. No daily command to remember. |
 | **I have lots of old sessions** | `backfill-sessions` turns existing `session_*.json` files into usable evidence immediately. |
 | **I want better matching** | Optional Qwen embeddings + bge reranking can improve candidate ordering. |
-| **I do not want scary rewrites** | Autorun writes append-only managed notes, skips pinned skills, and records backup/rollback manifests. |
+| **I do not want scary rewrites** | Autorun writes append-only managed notes, skips pinned skills, skips core Hermes/workflow skills by default, and records backup/rollback manifests. |
 
 ## Why this exists
 
@@ -101,7 +101,7 @@ Hermes skills are operational memory. They capture how an agent should debug, de
 | Learn from sessions. | Runtime hooks + historical backfill feed local SQLite evidence. |
 | Retrieve similar skills before editing. | Lexical search by default; optional Qwen embeddings + bge reranking. |
 | Verify skill changes. | Dry-run proposals, verifier gates, exact SHA match, backups, rollback. |
-| Avoid uncontrolled mutation. | No Hermes core patches, pinned skills are skipped, autorun is append-only. |
+| Avoid uncontrolled mutation. | No Hermes core patches, pinned skills are skipped, core workflow skills are protected from unattended writes, autorun is append-only. |
 
 ## Architecture
 
@@ -156,6 +156,7 @@ Hard defaults:
 - ✅ Apply creates a backup before writing.
 - ✅ Failed validation auto-restores the backup.
 - ✅ `auto-run` writes only managed append-only blocks and still requires both `--apply-low-risk` and `--approve-auto-apply` before mutation.
+- ✅ Even with both write flags, unattended auto-apply skips core Hermes/workflow skills by default (`hermes-*`, `gsd-*`, `github-*`, `mcp-*`, coding-agent skills, etc.).
 - ✅ `--semantic-candidates` / `--rerank-candidates` are explicit opt-ins and only reorder skills that already passed the evidence threshold.
 
 ## CLI reference
@@ -196,6 +197,8 @@ hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --format json     
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --semantic-candidates --rerank-candidates --format json
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --semantic-candidates --rerank-candidates --apply-low-risk --approve-auto-apply
+hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply --block-auto-apply-skill 'github-*'
+hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply --allow-auto-apply-skill store-playbook
 hermes-curator-evolver install-auto --schedule daily --enable
 hermes-curator-evolver install-auto --schedule daily --enable --semantic-candidates --rerank-candidates
 hermes-curator-evolver uninstall-auto

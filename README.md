@@ -72,7 +72,7 @@ hermes-curator-evolver install-auto --schedule daily --enable
 hermes gateway restart
 ```
 
-That is the whole happy path. After this, the plugin runs daily through a user-level systemd timer and can append low-risk, evidence-backed notes to active skills without changing Hermes Agent core.
+That is the whole happy path. After this, the plugin runs daily through a user-level systemd timer and can append low-risk, evidence-backed notes to active skills without changing Hermes Agent core. See [docs/after-install.md](docs/after-install.md) for health checks, timer behavior, uninstall steps, and the currently supported model paths.
 
 What gets installed:
 
@@ -147,7 +147,7 @@ PYTHONPATH=~/.hermes/plugins/curator-evolver \
 
 ## Architecture
 
-See [docs/architecture.md](docs/architecture.md) for the one-page architecture diagram, model usage plan, and safety boundary.
+See [docs/architecture.md](docs/architecture.md) for the one-page architecture diagram, model usage plan, and safety boundary. See [docs/after-install.md](docs/after-install.md) for the post-install autorun guide, health checks, uninstall path, and supported models.
 
 ```mermaid
 flowchart LR

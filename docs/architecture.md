@@ -63,6 +63,7 @@ Notes:
 - Chat/proposal/verifier text generation should follow the user's active Hermes provider configuration instead of being hardcoded in this plugin.
 - Embedding/reranker models are candidate-generation aids only; they do not decide or apply edits by themselves.
 - Semantic mode has a plan-only path (`--semantic`) and explicit execution paths (`--execute-semantic`, `--rerank`); no model is downloaded unless the user opts in.
+- For post-install operations and the current supported-model matrix, see [after-install.md](after-install.md).
 
 ## Safety boundary
 

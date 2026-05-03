@@ -6,7 +6,7 @@ This project complements the official `hermes curator` instead of replacing it. 
 
 ## Architecture
 
-See [docs/architecture.md](docs/architecture.md) for the component diagram, data-flow sequence, repository/module map, and v0.1 safety boundary.
+See [docs/architecture.md](docs/architecture.md) for the one-page architecture diagram, model usage plan, and v0.1 safety boundary.
 
 ## v0.1 Safety Model
 

@@ -1,0 +1,36 @@
+[build-system]
+requires = ["hatchling>=1.18"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hermes-curator-evolver"
+version = "0.1.0"
+description = "Read-only evidence-driven skill governance plugin for Hermes Agent curator workflows."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "pingchesu" }]
+keywords = ["hermes-agent", "plugin", "skills", "curator", "evidence"]
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "License :: OSI Approved :: MIT License",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+hermes-curator-evolver = "hermes_curator_evolver.__main__:main"
+
+[project.entry-points."hermes_agent.plugins"]
+curator-evolver = "hermes_curator_evolver"
+
+[tool.hatch.build.targets.wheel]
+packages = ["hermes_curator_evolver"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"

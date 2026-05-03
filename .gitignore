@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+build/
+*.egg-info/
+.venv/
+
+# Local Hermes/plugin data
+.data/
+*.sqlite
+*.sqlite-*
+
+# Editors
+.vscode/
+.idea/

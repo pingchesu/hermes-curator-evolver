@@ -48,6 +48,17 @@ def test_standalone_cli_parser_accepts_roadmap_commands():
         "--approve",
     ])
     rollback = parser.parse_args(["rollback", "--manifest", "manifest.json"])
+    auto_run = parser.parse_args([
+        "auto-run",
+        "--skills-dir",
+        "skills",
+        "--apply-low-risk",
+        "--approve-auto-apply",
+        "--format",
+        "json",
+    ])
+    install_auto = parser.parse_args(["install-auto", "--schedule", "daily"])
+    uninstall_auto = parser.parse_args(["uninstall-auto"])
 
     assert propose.curator_evolver_command == "propose"
     assert propose.draft_with_model is True
@@ -60,3 +71,9 @@ def test_standalone_cli_parser_accepts_roadmap_commands():
     assert apply.curator_evolver_command == "apply"
     assert apply.approve is True
     assert rollback.curator_evolver_command == "rollback"
+    assert auto_run.curator_evolver_command == "auto-run"
+    assert auto_run.apply_low_risk is True
+    assert auto_run.approve_auto_apply is True
+    assert install_auto.curator_evolver_command == "install-auto"
+    assert install_auto.schedule == "daily"
+    assert uninstall_auto.curator_evolver_command == "uninstall-auto"

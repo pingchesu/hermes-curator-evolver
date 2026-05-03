@@ -95,9 +95,9 @@ def format_markdown_report(report: dict[str, Any]) -> str:
             "",
             "## Interpretation policy",
             "",
-            "This report is evidence only. Repeated errors or repeated skill reads are candidates for human review, not proof that a skill should be changed.",
+            "This report is evidence only. Repeated errors or repeated skill reads are candidates for proposal generation or low-risk auto-run, not proof that a destructive skill change is safe.",
             "",
-            "No skill mutations were performed by Hermes Curator Evolver v0.1.",
+            "No skill mutations were performed by this report command.",
         ]
     )
     return "\n".join(lines)

@@ -1,14 +1,14 @@
 ---
 name: curator-evolution
-description: Use when interpreting Hermes Curator Evolver evidence reports, proposals, verifier results, candidate search, or guarded apply manifests.
-version: 0.5.0
+description: Use when interpreting Hermes Curator Evolver evidence reports, proposals, verifier results, candidate search, auto-run output, timer installs, or guarded apply manifests.
+version: 0.6.0
 author: pingchesu
 license: MIT
 ---
 
 # Curator Evolution
 
-Hermes Curator Evolver starts from evidence and keeps mutation guarded. Treat reports and proposals as review artifacts until the verifier passes and a human explicitly approves apply.
+Hermes Curator Evolver starts from evidence and keeps mutation guarded. Reports and proposals are review artifacts. `auto-run` can make skills actually improve, but only through low-risk managed append-only blocks plus guarded apply.
 
 ## Interpretation Checklist
 
@@ -19,6 +19,8 @@ Hermes Curator Evolver starts from evidence and keeps mutation guarded. Treat re
 5. If the skill was correct but the agent ignored it, improve triggers/descriptions only when evidence repeats.
 6. Candidate search is advisory; embedding/reranker models only find candidates and do not decide edits.
 7. Guarded apply requires approval, backup, verifier/validation pass, and rollback.
+8. `auto-run` mutates only when both `--apply-low-risk` and `--approve-auto-apply` are set.
+9. `install-auto --enable` creates a user systemd timer; remove it with `uninstall-auto` before plugin uninstall.
 
 ## Safe Next Actions
 
@@ -26,4 +28,8 @@ Hermes Curator Evolver starts from evidence and keeps mutation guarded. Treat re
 - Run `hermes-curator-evolver propose --skill <name> --format json` for a dry-run proposal.
 - Run `hermes-curator-evolver verify --proposal-file <proposal.json>` before considering apply.
 - Use `hermes-curator-evolver candidates --query <text> --skills-dir <dir>` for dependency-free lexical candidate search.
+- Use `hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --format json` to preview automatic improvements.
+- Use `hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply` for actual low-risk append-only improvement.
+- Use `hermes-curator-evolver install-auto --schedule daily --enable` for plug-in daily automation without Hermes core changes.
+- Use `hermes-curator-evolver uninstall-auto` to remove the optional timer.
 - Use guarded apply only with an exact SHA256 and a reviewed content file.

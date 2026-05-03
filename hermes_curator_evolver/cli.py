@@ -6,6 +6,13 @@ import argparse
 import json
 from pathlib import Path
 
+from .auto_evolve import (
+    AutoEvolveConfig,
+    format_auto_evolve_result,
+    install_auto_timer,
+    run_auto_evolve,
+    uninstall_auto_timer,
+)
 from .guarded_apply import apply_guarded_patch, rollback_guarded_patch
 from .proposals import (
     build_model_drafted_proposal,
@@ -102,6 +109,36 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
     rollback.add_argument("--force", action="store_true", help="Rollback even if target changed after apply")
     rollback.set_defaults(func=handle_cli)
 
+    auto_run = subs.add_parser("auto-run", help="Run one automatic low-risk evolution pass")
+    auto_run.add_argument("--days", type=int, default=7, help="Lookback window in days")
+    auto_run.add_argument("--skills-dir", help="Skills root (default: ~/.hermes/skills)")
+    auto_run.add_argument("--backup-dir", help="Backup root for guarded apply")
+    auto_run.add_argument("--max-skills", type=int, default=3, help="Max skills to consider")
+    auto_run.add_argument("--min-evidence", type=int, default=2, help="Minimum skill evidence count")
+    auto_run.add_argument("--apply-low-risk", action="store_true", help="Apply low-risk append-only updates")
+    auto_run.add_argument(
+        "--approve-auto-apply",
+        action="store_true",
+        help="Required with --apply-low-risk before any file writes occur",
+    )
+    auto_run.add_argument("--verify-command", help="Optional command to validate after each apply")
+    auto_run.add_argument("--verify-cwd", help="Working directory for verification command")
+    auto_run.add_argument(
+        "--format", choices=["markdown", "json"], default="markdown", help="Output format"
+    )
+    auto_run.set_defaults(func=handle_cli)
+
+    install_auto = subs.add_parser("install-auto", help="Install a user systemd timer for auto-run")
+    install_auto.add_argument("--schedule", default="daily", help="systemd OnCalendar value or hourly/daily/weekly")
+    install_auto.add_argument("--skills-dir", help="Skills root for the timer command")
+    install_auto.add_argument("--proposal-only", action="store_true", help="Timer runs dry-run instead of applying low-risk updates")
+    install_auto.add_argument("--enable", action="store_true", help="Enable and start the timer now")
+    install_auto.set_defaults(func=handle_cli)
+
+    uninstall_auto = subs.add_parser("uninstall-auto", help="Remove the user systemd auto-run timer")
+    uninstall_auto.add_argument("--keep-enabled", action="store_true", help="Do not call systemctl disable --now before removing files")
+    uninstall_auto.set_defaults(func=handle_cli)
+
     subparser.set_defaults(func=handle_cli)
 
 
@@ -127,7 +164,7 @@ def handle_cli(args: argparse.Namespace) -> None:
         print(f"Tool events: {summary['tool_events']}")
         print(f"Skill events: {summary['skill_events']}")
         print(f"Error-like events: {summary['error_events']}")
-        print("Mode: evidence collection + gated roadmap features")
+        print("Mode: evidence collection + automatic low-risk evolution + guarded apply")
         return
 
     if command in {"report", "analyze"}:
@@ -206,5 +243,37 @@ def handle_cli(args: argparse.Namespace) -> None:
 
     if command == "rollback":
         result = rollback_guarded_patch(values["manifest"], force=bool(values.get("force")))
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        return
+
+    if command == "auto-run":
+        result = run_auto_evolve(
+            AutoEvolveConfig(
+                skills_dir=values.get("skills_dir"),
+                backup_dir=values.get("backup_dir"),
+                days=_bounded_days(values.get("days"), 7),
+                max_skills=int(values.get("max_skills") or 3),
+                min_evidence=int(values.get("min_evidence") or 2),
+                apply_low_risk=bool(values.get("apply_low_risk")),
+                approve_auto_apply=bool(values.get("approve_auto_apply")),
+                verify_command=values.get("verify_command"),
+                verify_cwd=values.get("verify_cwd"),
+            )
+        )
+        print(format_auto_evolve_result(result, output_format=values.get("format") or "markdown"))
+        return
+
+    if command == "install-auto":
+        result = install_auto_timer(
+            schedule=values.get("schedule") or "daily",
+            skills_dir=values.get("skills_dir"),
+            apply_low_risk=not bool(values.get("proposal_only")),
+            enable=bool(values.get("enable")),
+        )
+        print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
+        return
+
+    if command == "uninstall-auto":
+        result = uninstall_auto_timer(disable=not bool(values.get("keep_enabled")))
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
         return

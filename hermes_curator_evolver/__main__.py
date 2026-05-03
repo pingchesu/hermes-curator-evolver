@@ -16,7 +16,7 @@ from .cli import handle_cli, setup_cli
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="hermes-curator-evolver",
-        description="Read-only evidence reports for Hermes curator workflows.",
+        description="Evidence-driven reports, proposals, and automatic low-risk skill evolution for Hermes.",
     )
     setup_cli(parser)
     return parser

@@ -9,7 +9,7 @@
 [![Agents](https://img.shields.io/badge/Agents-skill%20governance-2563eb?style=flat-square)](https://github.com/pingchesu/hermes-curator-evolver)
 [![Python](https://img.shields.io/badge/Python-3.11%2B-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
 [![SQLite](https://img.shields.io/badge/SQLite-local%20evidence-003B57?style=flat-square&logo=sqlite&logoColor=white)](https://www.sqlite.org/)
-[![Safety](https://img.shields.io/badge/v0.5-model%20drafting%20%2B%20guarded%20apply-22c55e?style=flat-square)](#safety-model)
+[![Safety](https://img.shields.io/badge/v0.6-auto%20evolve%20%2B%20guarded%20apply-22c55e?style=flat-square)](#safety-model)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](./LICENSE)
 
 | 🔎 Evidence first | 🧠 Model-aware roadmap | 🛡️ Guarded apply | 🔌 Hermes plugin |
@@ -55,6 +55,10 @@ Hermes skills are powerful, but a growing skill library can become noisy: stale 
 <td>🛡️ <b>Apply safely</b></td>
 <td>Applies reviewed content only with explicit approval, exact hash match, backup, optional verification, and rollback manifest.</td>
 </tr>
+<tr>
+<td>🤖 <b>Auto-evolve</b></td>
+<td>Runs a plug-in automation loop that can append low-risk evidence-backed notes to active skills without modifying Hermes core.</td>
+</tr>
 </table>
 
 ## Quick start
@@ -85,6 +89,22 @@ hermes-curator-evolver propose --skill hermes-agent --skill-file ~/.hermes/skill
 hermes-curator-evolver verify --proposal-file proposal.json --skill hermes-agent
 hermes-curator-evolver candidates --query "gateway plugin restart" --skills-dir ~/.hermes/skills
 hermes-curator-evolver candidates --query "gateway plugin restart" --skills-dir ~/.hermes/skills --execute-semantic --rerank --format json
+hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --format json
+```
+
+To make skills improve automatically without changing Hermes core, install the optional user timer:
+
+```bash
+# Writes ~/.config/systemd/user/hermes-curator-evolver-auto.{service,timer}
+hermes-curator-evolver install-auto --schedule daily --enable
+```
+
+The timer runs `auto-run --apply-low-risk --approve-auto-apply`: it only performs append-only managed updates, preserves the original skill text, writes backups, and records rollback manifests. Use `--proposal-only` if you want a non-mutating timer first.
+
+Disable/remove the automatic timer:
+
+```bash
+hermes-curator-evolver uninstall-auto
 ```
 
 If you only want a one-off CLI smoke test without installing the entrypoint, run:
@@ -109,6 +129,8 @@ flowchart LR
     Proposal --> Verify[verifier gate]
     Verify --> Human[human approval]
     Human --> Apply[guarded apply + rollback]
+    DB --> Auto[auto-run low-risk append]
+    Auto --> Apply
 ```
 
 ## Model usage plan
@@ -121,6 +143,7 @@ flowchart LR
 | v0.3/v0.5 | `Qwen/Qwen3-Embedding-0.6B` | Candidate skill/evidence/user-correction search. | Optional `--execute-semantic`; no default download. |
 | v0.3/v0.5 | `BAAI/bge-reranker-v2-m3` | Re-rank candidates, especially for mixed Chinese/English agent workflows. | Optional `--rerank`; no default download. |
 | v0.4 | Verifier + local validation command | Guard final reviewed content before apply. | Requires approval, backup, verification, rollback. |
+| v0.6 | None by default | Automatic low-risk append-only skill updates from observed evidence. | Optional `install-auto`; no Hermes core modification. |
 
 ## Safety model
 
@@ -144,6 +167,7 @@ Hard defaults:
 - ✅ Apply refuses if the target SHA256 changed.
 - ✅ Apply creates a backup before writing.
 - ✅ Failed validation auto-restores the backup.
+- ✅ `auto-run` writes only managed append-only blocks and still requires both `--apply-low-risk` and `--approve-auto-apply` before mutation.
 
 ## CLI reference
 
@@ -176,6 +200,33 @@ hermes-curator-evolver apply \
 
 # Rollback
 hermes-curator-evolver rollback --manifest .curator-evolver-backups/<timestamp>/manifest.json
+
+# Automatic evolution
+hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --format json                  # dry-run
+hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply
+hermes-curator-evolver install-auto --schedule daily --enable
+hermes-curator-evolver uninstall-auto
+```
+
+## Uninstall
+
+Hermes already provides plugin removal:
+
+```bash
+hermes plugins disable curator-evolver
+hermes plugins uninstall curator-evolver   # alias: remove/rm
+```
+
+If you enabled the optional auto-evolve timer, remove it first:
+
+```bash
+hermes-curator-evolver uninstall-auto
+```
+
+Plugin removal does not delete historical evidence by default. Remove it manually only if you want a clean slate:
+
+```bash
+rm -rf ~/.hermes/plugins/curator-evolver/data ~/.hermes/plugins/curator-evolver/backups
 ```
 
 ## Agent tool
@@ -234,6 +285,7 @@ export HERMES_CURATOR_EVOLVER_DB=/custom/path.sqlite
 - ✅ **v0.3** — candidate generation interface with optional embedding/reranker model plan.
 - ✅ **v0.4** — guarded apply with explicit approval, backup, verification, and rollback.
 - ✅ **v0.5** — explicit model execution paths: Hermes chat-model drafts, Qwen embedding candidate ranking, and bge reranking.
+- ✅ **v0.6** — plug-and-play `auto-run` + optional systemd timer for low-risk append-only skill improvements without Hermes core changes.
 
 ---
 

@@ -1,6 +1,6 @@
 # Hermes Curator Evolver Architecture
 
-`hermes-curator-evolver` is a small evidence layer around Hermes skills. It does **not** replace the official `hermes curator`; it observes what happened, summarizes why a skill may need improvement, drafts reviewable proposals, and applies reviewed content only through guardrails.
+`hermes-curator-evolver` is a plug-in evidence and auto-evolution layer around Hermes skills. It does **not** replace the official `hermes curator`; it observes what happened, summarizes why a skill may need improvement, drafts reviewable proposals, and can automatically apply low-risk append-only evidence notes through guardrails without modifying Hermes core.
 
 ## One-page architecture
 
@@ -12,6 +12,7 @@ flowchart LR
     R[reports\nmarkdown / JSON]
     C[candidate search\nlexical default]
     Proposal[dry-run proposal]
+    Auto[auto-run\nlow-risk append]
     V[verifier gate]
     Human[human approval]
     Apply[guarded apply\nbackup / verify / rollback]
@@ -22,9 +23,11 @@ flowchart LR
     R --> Proposal
     R --> C
     C --> Proposal
+    R --> Auto
     Proposal --> V
     V --> Human
     Human --> Apply
+    Auto --> Apply
 ```
 
 The safety rule is simple: everything before `Apply` is non-mutating; `Apply` requires explicit approval and creates a rollback manifest.
@@ -39,6 +42,7 @@ The safety rule is simple: everything before `Apply` is non-mutating; `Apply` re
 | Reports | Shows which skills/tools produced useful or problematic evidence. |
 | Candidate search | Finds likely related skills with lexical search by default; semantic models are opt-in only. |
 | Proposal | Produces dry-run review artifacts grounded in evidence. |
+| Auto-run | Selects active evidence-backed skills and prepares low-risk managed append-only notes. |
 | Verifier | Blocks ungrounded, mutating, or destructive proposals. |
 | Guarded apply | Writes reviewed content only after approval/hash/backup/verify gates. |
 
@@ -52,6 +56,7 @@ The safety rule is simple: everything before `Apply` is non-mutating; `Apply` re
 | v0.3/v0.5 | `Qwen/Qwen3-Embedding-0.6B` | Embedding skills, session evidence, and user corrections to find candidate skills. | Optional `--execute-semantic`; no default model download. |
 | v0.3/v0.5 | `BAAI/bge-reranker-v2-m3` | Re-ranking candidate skills/evidence after embedding search, especially for Chinese/English mixed workflows. | Optional `--rerank`; no default model download. |
 | v0.4 | Verifier + local validation command | Guarding reviewed content before it is applied. | Requires approval, backup, verification, and rollback path. |
+| v0.6 | None by default | Automatic low-risk append-only skill evolution from evidence. | Optional `auto-run` / `install-auto`; no Hermes core modification. |
 
 Notes:
 
@@ -88,6 +93,8 @@ Hard rules:
 - Guarded apply requires exact target SHA256 and `--approve`.
 - Guarded apply creates a backup and manifest before writing.
 - Failed validation restores the backup automatically.
+- Auto-run mutates only when both `--apply-low-risk` and `--approve-auto-apply` are provided.
+- Auto-run preserves existing skill text and writes only a managed `curator-evolver:auto` block.
 
 ## Current commands
 
@@ -101,6 +108,9 @@ hermes-curator-evolver candidates --query "gateway restart" --skills-dir ~/.herm
 hermes-curator-evolver candidates --query "gateway restart" --skills-dir ~/.hermes/skills --execute-semantic --rerank --format json
 hermes-curator-evolver apply --target ./SKILL.md --content-file ./reviewed-SKILL.md --expected-sha256 <sha> --approve
 hermes-curator-evolver rollback --manifest .curator-evolver-backups/<timestamp>/manifest.json
+hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply
+hermes-curator-evolver install-auto --schedule daily --enable
+hermes-curator-evolver uninstall-auto
 ```
 
 The plugin also registers `curator-evolver` through Hermes plugin APIs for forward compatibility, but current Hermes builds may not expose it as `hermes curator-evolver ...` yet.

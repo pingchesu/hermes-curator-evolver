@@ -4,8 +4,8 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hermes-curator-evolver"
-version = "0.5.0"
-description = "Evidence-driven skill evolution for Hermes Agent with dry-run proposals, optional candidate search, and guarded apply."
+version = "0.6.0"
+description = "Plug-and-play evidence-driven skill evolution for Hermes Agent with automatic low-risk updates and guarded apply."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "MIT" }

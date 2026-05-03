@@ -8,7 +8,7 @@ from .cli import handle_cli, setup_cli
 from .hooks import on_post_llm_call, on_post_tool_call, on_session_end
 from .tools import CURATOR_EVIDENCE_REPORT_SCHEMA, curator_evidence_report
 
-__version__ = "0.4.0"
+__version__ = "0.5.0"
 
 
 def _handle_slash_command(raw_args: str) -> str:

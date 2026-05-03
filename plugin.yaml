@@ -1,5 +1,5 @@
 name: curator-evolver
-version: "0.4.0"
+version: "0.5.0"
 description: Evidence-driven skill evolution plugin with reports, proposals, candidate search, and guarded apply.
 author: pingchesu
 kind: standalone

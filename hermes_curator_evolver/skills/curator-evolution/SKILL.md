@@ -1,7 +1,7 @@
 ---
 name: curator-evolution
 description: Use when interpreting Hermes Curator Evolver evidence reports, proposals, verifier results, candidate search, or guarded apply manifests.
-version: 0.4.0
+version: 0.5.0
 author: pingchesu
 license: MIT
 ---

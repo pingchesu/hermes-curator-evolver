@@ -19,12 +19,14 @@ from typing import Any
 
 from .guarded_apply import apply_guarded_patch, sha256_file
 from .reports import build_report
+from .semantic import find_skill_candidates
 from .storage import EvidenceStore
 
 _START = "<!-- curator-evolver:auto:start -->"
 _END = "<!-- curator-evolver:auto:end -->"
 _FRONTMATTER_NAME_RE = re.compile(r"^---\s*\n(?P<body>.*?)\n---\s*\n", re.DOTALL)
 _NAME_RE = re.compile(r"^name:\s*[\"']?(?P<name>[^\"'\n]+)[\"']?\s*$", re.MULTILINE)
+_PIN_RE = re.compile(r"^(?:pin|pinned):\s*(?:true|yes|1)\s*$", re.IGNORECASE | re.MULTILINE)
 
 
 @dataclass(frozen=True)
@@ -41,6 +43,10 @@ class AutoEvolveConfig:
     approve_auto_apply: bool = False
     verify_command: str | None = None
     verify_cwd: str | Path | None = None
+    semantic_candidates: bool = False
+    rerank_candidates: bool = False
+    embedding_backend: Any | None = None
+    reranker_backend: Any | None = None
 
 
 def _default_skills_dir() -> Path:
@@ -62,6 +68,11 @@ def _skill_name_from_text(text: str, fallback: str) -> str:
         if name_match:
             return name_match.group("name").strip()
     return fallback
+
+
+def _skill_is_pinned(text: str) -> bool:
+    match = _FRONTMATTER_NAME_RE.match(text)
+    return bool(match and _PIN_RE.search(match.group("body")))
 
 
 def discover_skill_files(skills_dir: str | Path) -> dict[str, Path]:
@@ -159,16 +170,126 @@ def build_low_risk_skill_update(
     return skill_text + separator + block
 
 
-def _candidate_skill_names(report: dict[str, Any], *, max_skills: int, min_evidence: int) -> list[str]:
-    names: list[str] = []
+def _eligible_skill_rows(report: dict[str, Any], *, min_evidence: int) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
     for row in report.get("summary", {}).get("skills", []) or []:
         count = int(row.get("event_count") or 0)
         name = row.get("skill_name")
         if name and count >= min_evidence:
-            names.append(str(name))
-        if len(names) >= max_skills:
-            break
-    return names
+            rows.append(dict(row))
+    return rows
+
+
+def _build_semantic_query(report: dict[str, Any], *, eligible_names: set[str], limit: int = 20) -> str:
+    lines: list[str] = []
+    for row in report.get("summary", {}).get("skills", []) or []:
+        name = str(row.get("skill_name") or "")
+        if name in eligible_names:
+            lines.append(
+                f"skill={name} events={int(row.get('event_count') or 0)} errors={int(row.get('errors') or 0)}"
+            )
+    for row in (report.get("skill_evidence") or [])[:limit]:
+        name = str(row.get("skill_name") or "")
+        if name not in eligible_names:
+            continue
+        preview = str(row.get("result_preview") or "").replace("\n", " ").strip()
+        tool = str(row.get("tool_name") or "unknown-tool")
+        lines.append(f"skill={name} tool={tool} result={preview}")
+    if not lines:
+        return " ".join(sorted(eligible_names)) or "Hermes skill evidence"
+    return "\n".join(lines)
+
+
+def _deterministic_selection_metadata(rows: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {
+        str(row.get("skill_name")): {
+            "source": "evidence-threshold",
+            "score": int(row.get("event_count") or 0),
+            "reasons": [
+                f"event_count={int(row.get('event_count') or 0)}",
+                f"errors={int(row.get('errors') or 0)}",
+            ],
+        }
+        for row in rows
+        if row.get("skill_name")
+    }
+
+
+def _select_candidate_skill_names(
+    *,
+    report: dict[str, Any],
+    skills_dir: Path,
+    max_skills: int,
+    min_evidence: int,
+    semantic_candidates: bool,
+    rerank_candidates: bool,
+    embedding_backend: Any | None,
+    reranker_backend: Any | None,
+) -> tuple[list[str], dict[str, dict[str, Any]], dict[str, Any]]:
+    eligible_rows = _eligible_skill_rows(report, min_evidence=min_evidence)
+    eligible_names = [str(row["skill_name"]) for row in eligible_rows]
+    eligible_set = set(eligible_names)
+    metadata = _deterministic_selection_metadata(eligible_rows)
+    selection: dict[str, Any] = {
+        "mode": "deterministic-evidence",
+        "semantic_requested": bool(semantic_candidates or rerank_candidates),
+        "rerank_requested": bool(rerank_candidates),
+        "eligible_skill_count": len(eligible_names),
+        "models": {"embedding": "not-used", "reranker": "not-used"},
+    }
+
+    if not eligible_names:
+        return [], metadata, selection
+
+    if not (semantic_candidates or rerank_candidates):
+        return eligible_names[:max_skills], metadata, selection
+
+    skill_file_count = len(discover_skill_files(skills_dir))
+    if skill_file_count == 0:
+        selection.update({"mode": "semantic-no-skill-files", "fallback": "deterministic-evidence"})
+        return eligible_names[:max_skills], metadata, selection
+
+    query = _build_semantic_query(report, eligible_names=eligible_set)
+    semantic_result = find_skill_candidates(
+        query=query,
+        skills_dir=skills_dir,
+        semantic=True,
+        limit=max(skill_file_count, len(eligible_names), max_skills),
+        embedding_backend=embedding_backend,
+        reranker_backend=reranker_backend,
+        load_models=embedding_backend is None,
+        load_reranker=bool(rerank_candidates and reranker_backend is None),
+    )
+    selection.update(
+        {
+            "mode": semantic_result.get("mode") or "semantic-unavailable",
+            "models": semantic_result.get("models") or selection["models"],
+            "model_executed": bool(semantic_result.get("model_executed")),
+            "reranker_executed": bool(semantic_result.get("reranker_executed")),
+            "query_preview": query[:500],
+        }
+    )
+    if semantic_result.get("error"):
+        selection["error"] = semantic_result.get("error")
+
+    ranked_names: list[str] = []
+    for item in semantic_result.get("candidates") or []:
+        name = str(item.get("skill_name") or "")
+        if name not in eligible_set or name in ranked_names:
+            continue
+        ranked_names.append(name)
+        metadata[name] = {
+            "source": semantic_result.get("mode") or "semantic",
+            "score": float(item.get("score") or 0.0),
+            "reasons": list(item.get("reasons") or []),
+            "embedding_score": item.get("embedding_score"),
+        }
+    for name in eligible_names:
+        if name not in ranked_names:
+            ranked_names.append(name)
+    if not semantic_result.get("model_executed"):
+        selection["fallback"] = "deterministic-evidence"
+    return ranked_names[:max_skills], metadata, selection
 
 
 def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
@@ -188,7 +309,16 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
     store = EvidenceStore(cfg.db_path)
     report = build_report(store, days=days)
     skill_files = discover_skill_files(skills_dir)
-    names = _candidate_skill_names(report, max_skills=max_skills, min_evidence=min_evidence)
+    names, selection_metadata, selection = _select_candidate_skill_names(
+        report=report,
+        skills_dir=skills_dir,
+        max_skills=max_skills,
+        min_evidence=min_evidence,
+        semantic_candidates=bool(cfg.semantic_candidates),
+        rerank_candidates=bool(cfg.rerank_candidates),
+        embedding_backend=cfg.embedding_backend,
+        reranker_backend=cfg.reranker_backend,
+    )
     mode = "apply-low-risk" if cfg.apply_low_risk else "dry-run"
     candidates: list[dict[str, Any]] = []
     applied = 0
@@ -199,6 +329,7 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
             "skill_name": name,
             "risk": "low",
             "mutation_policy": "append-only-managed-block",
+            "selection": selection_metadata.get(name, {"source": "unknown", "reasons": []}),
             "target_path": str(skill_file) if skill_file else None,
         }
         if not skill_file:
@@ -206,10 +337,15 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
             candidate["reason"] = "skill-file-not-found"
             candidates.append(candidate)
             continue
+        original = skill_file.read_text(encoding="utf-8")
+        if _skill_is_pinned(original):
+            candidate["status"] = "skipped"
+            candidate["reason"] = "pinned-skill"
+            candidates.append(candidate)
+            continue
         skill_report = build_report(store, days=days, skill=name)
         skill_summary = skill_report.get("summary") or {}
         evidence_rows = skill_report.get("skill_evidence") or []
-        original = skill_file.read_text(encoding="utf-8")
         updated = build_low_risk_skill_update(
             skill_name=name,
             skill_text=original,
@@ -252,7 +388,7 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
         candidates.append(candidate)
 
     return {
-        "schema_version": "0.6",
+        "schema_version": "0.7",
         "mode": mode,
         "safety": {
             "core_modifications": False,
@@ -267,7 +403,10 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
             "days": days,
             "max_skills": max_skills,
             "min_evidence": min_evidence,
+            "semantic_candidates": bool(cfg.semantic_candidates),
+            "rerank_candidates": bool(cfg.rerank_candidates),
         },
+        "selection": selection,
         "summary": {
             "planned": len([c for c in candidates if c.get("status") in {"planned", "applied"}]),
             "applied": applied,
@@ -287,6 +426,8 @@ def install_auto_timer(
     skills_dir: str | Path | None = None,
     apply_low_risk: bool = True,
     enable: bool = False,
+    semantic_candidates: bool = False,
+    rerank_candidates: bool = False,
 ) -> dict[str, Any]:
     """Install a user systemd timer for automatic evolution.
 
@@ -310,6 +451,10 @@ def install_auto_timer(
         "--format",
         "json",
     ]
+    if semantic_candidates or rerank_candidates:
+        args.append("--semantic-candidates")
+    if rerank_candidates:
+        args.append("--rerank-candidates")
     if apply_low_risk:
         args.extend(["--apply-low-risk", "--approve-auto-apply"])
     command = " ".join(args)
@@ -350,6 +495,8 @@ def install_auto_timer(
         "service_path": str(service_path),
         "timer_path": str(timer_path),
         "schedule": on_calendar,
+        "semantic_candidates": bool(semantic_candidates or rerank_candidates),
+        "rerank_candidates": bool(rerank_candidates),
         "command": command,
     }
     if enable:
@@ -404,6 +551,7 @@ def format_auto_evolve_result(result: dict[str, Any], *, output_format: str) -> 
         f"- Planned: {result['summary']['planned']}",
         f"- Applied: {result['summary']['applied']}",
         f"- Skipped: {result['summary']['skipped']}",
+        f"- Selection: `{result.get('selection', {}).get('mode', 'unknown')}`",
         "",
         "## Candidates",
         "",
@@ -414,6 +562,8 @@ def format_auto_evolve_result(result: dict[str, Any], *, output_format: str) -> 
         )
         if candidate.get("apply_result"):
             lines.append(f"  - apply: {candidate['apply_result'].get('reason')}")
+        if candidate.get("selection"):
+            lines.append(f"  - selection: {candidate['selection'].get('source')} score={candidate['selection'].get('score')}")
     if not result.get("candidates"):
         lines.append("- No skills met the evidence threshold.")
     return "\n".join(lines)

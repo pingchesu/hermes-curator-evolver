@@ -1,27 +1,29 @@
 ---
 name: curator-evolution
-description: Use when interpreting Hermes Curator Evolver evidence reports or deciding whether a skill governance proposal is ready for a later verifier/apply phase.
-version: 0.1.0
+description: Use when interpreting Hermes Curator Evolver evidence reports, proposals, verifier results, candidate search, or guarded apply manifests.
+version: 0.4.0
 author: pingchesu
 license: MIT
 ---
 
 # Curator Evolution
 
-Hermes Curator Evolver v0.1 is read-only. Treat all reports as evidence for review, not as instructions to mutate skills.
+Hermes Curator Evolver starts from evidence and keeps mutation guarded. Treat reports and proposals as review artifacts until the verifier passes and a human explicitly approves apply.
 
 ## Interpretation Checklist
 
 1. Separate evidence from conclusions.
 2. Repeated tool errors suggest a possible missing pitfall or verification step in a skill.
-3. Repeated `skill_view` usage suggests the skill is active and worth keeping discoverable.
+3. Repeated skill reads suggest the skill is active and worth keeping discoverable.
 4. A single failure is not enough evidence to rewrite a skill.
-5. If the skill was correct but the agent ignored it, prefer improving trigger/description only if repeated.
-6. Do not propose delete in v0.1.
-7. Do not propose auto-apply without a verifier gate and explicit user approval.
+5. If the skill was correct but the agent ignored it, improve triggers/descriptions only when evidence repeats.
+6. Candidate search is advisory; embedding/reranker models only find candidates and do not decide edits.
+7. Guarded apply requires approval, backup, verifier/validation pass, and rollback.
 
 ## Safe Next Actions
 
-- Ask for a targeted human review of one skill.
-- Draft a proposal with evidence row references.
-- Defer embedding/rerank analysis until semantic mode is explicitly enabled in a future release.
+- Run `hermes-curator-evolver report --days 7` for evidence.
+- Run `hermes-curator-evolver propose --skill <name> --format json` for a dry-run proposal.
+- Run `hermes-curator-evolver verify --proposal-file <proposal.json>` before considering apply.
+- Use `hermes-curator-evolver candidates --query <text> --skills-dir <dir>` for dependency-free lexical candidate search.
+- Use guarded apply only with an exact SHA256 and a reviewed content file.

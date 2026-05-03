@@ -1,6 +1,6 @@
 name: curator-evolver
-version: "0.1.0"
-description: Read-only evidence-driven skill governance plugin for Hermes curator workflows.
+version: "0.4.0"
+description: Evidence-driven skill evolution plugin with reports, proposals, candidate search, and guarded apply.
 author: pingchesu
 kind: standalone
 provides_tools:

@@ -9,3 +9,45 @@ def test_standalone_cli_parser_accepts_report_command():
     assert args.curator_evolver_command == "report"
     assert args.days == 3
     assert args.format == "json"
+
+
+def test_standalone_cli_parser_accepts_roadmap_commands():
+    parser = build_parser()
+
+    propose = parser.parse_args([
+        "propose",
+        "--skill",
+        "hermes-agent",
+        "--skill-file",
+        "SKILL.md",
+        "--output",
+        "proposal.md",
+    ])
+    verify = parser.parse_args(["verify", "--proposal-file", "proposal.json"])
+    candidates = parser.parse_args([
+        "candidates",
+        "--query",
+        "gateway restart",
+        "--skills-dir",
+        "skills",
+        "--semantic",
+    ])
+    apply = parser.parse_args([
+        "apply",
+        "--target",
+        "SKILL.md",
+        "--content-file",
+        "proposal.md",
+        "--expected-sha256",
+        "abc",
+        "--approve",
+    ])
+    rollback = parser.parse_args(["rollback", "--manifest", "manifest.json"])
+
+    assert propose.curator_evolver_command == "propose"
+    assert verify.curator_evolver_command == "verify"
+    assert candidates.curator_evolver_command == "candidates"
+    assert candidates.semantic is True
+    assert apply.curator_evolver_command == "apply"
+    assert apply.approve is True
+    assert rollback.curator_evolver_command == "rollback"

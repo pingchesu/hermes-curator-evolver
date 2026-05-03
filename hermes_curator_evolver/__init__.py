@@ -8,7 +8,7 @@ from .cli import handle_cli, setup_cli
 from .hooks import on_post_llm_call, on_post_tool_call, on_session_end
 from .tools import CURATOR_EVIDENCE_REPORT_SCHEMA, curator_evidence_report
 
-__version__ = "0.1.0"
+__version__ = "0.4.0"
 
 
 def _handle_slash_command(raw_args: str) -> str:
@@ -53,10 +53,10 @@ def register(ctx) -> None:
     ctx.register_hook("on_session_end", on_session_end)
     ctx.register_cli_command(
         name="curator-evolver",
-        help="Read-only evidence reports for Hermes curator workflows",
+        help="Evidence reports and guarded skill evolution workflows",
         setup_fn=setup_cli,
         handler_fn=handle_cli,
-        description="Analyze skill/session evidence without mutating skills.",
+        description="Analyze evidence, draft proposals, find candidates, and apply reviewed changes with guardrails.",
     )
     ctx.register_command(
         "curator-evolver",

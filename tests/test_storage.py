@@ -71,9 +71,22 @@ def test_store_compacts_long_payloads(tmp_path):
         model="m",
         platform="cli",
     )
-
     rows = store.recent_turns(days=1, limit=1)
 
     assert len(rows) == 1
     assert len(rows[0]["user_preview"]) <= 21
     assert len(rows[0]["assistant_preview"]) <= 21
+
+
+def test_store_quarantines_non_sqlite_evidence_file(tmp_path):
+    db = tmp_path / "evidence.sqlite"
+    db.write_bytes(b"SQLit\x17\x03\x03 not sqlite")
+
+    store = EvidenceStore(db)
+    store.record_tool_call(tool_name="terminal", args={}, result="ok")
+
+    assert store.summary(days=1)["tool_events"] == 1
+    backups = list(tmp_path.glob("evidence.sqlite.corrupt.*"))
+    assert len(backups) == 1
+    assert backups[0].read_bytes() == b"SQLit\x17\x03\x03 not sqlite"
+

@@ -11,6 +11,8 @@ build/
 
 # Local Hermes/plugin data
 .data/
+data/
+backups/
 *.sqlite
 *.sqlite-*
 

@@ -8,6 +8,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+_SQLITE_HEADER = b"SQLite format 3\x00"
+
 from .paths import default_db_path
 
 _SCHEMA = """
@@ -139,8 +141,35 @@ class EvidenceStore:
         return conn
 
     def init_db(self) -> None:
-        with self.connect() as conn:
-            conn.executescript(_SCHEMA)
+        try:
+            with self.connect() as conn:
+                conn.executescript(_SCHEMA)
+        except sqlite3.DatabaseError:
+            if not self._quarantine_corrupt_db():
+                raise
+            with self.connect() as conn:
+                conn.executescript(_SCHEMA)
+
+    def _quarantine_corrupt_db(self) -> bool:
+        """Move a non-SQLite evidence file aside so collection can resume."""
+        if not self.db_path.exists() or not self.db_path.is_file():
+            return False
+        try:
+            header = self.db_path.read_bytes()[: len(_SQLITE_HEADER)]
+        except OSError:
+            return False
+        if header == _SQLITE_HEADER:
+            return False
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        backup = self.db_path.with_name(f"{self.db_path.name}.corrupt.{stamp}")
+        suffix = 1
+        while backup.exists():
+            backup = self.db_path.with_name(
+                f"{self.db_path.name}.corrupt.{stamp}.{suffix}"
+            )
+            suffix += 1
+        self.db_path.replace(backup)
+        return True
 
     def record_tool_call(
         self,

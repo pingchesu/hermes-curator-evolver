@@ -258,6 +258,15 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Timer uses reranker-backed candidate ordering; implies --semantic-candidates",
     )
+    install_auto.add_argument(
+        "--no-verify-skills",
+        dest="verify_skills",
+        action="store_false",
+        default=True,
+        help="Disable the built-in post-apply SKILL.md validator in the timer",
+    )
+    install_auto.add_argument("--verify-command", help="Custom command to validate after each timer apply")
+    install_auto.add_argument("--verify-cwd", help="Working directory for timer verification command")
     install_auto.add_argument("--enable", action="store_true", help="Enable and start the timer now")
     install_auto.set_defaults(func=handle_cli)
 
@@ -317,6 +326,7 @@ def _run_bootstrap(values: dict) -> dict:
         protect_core_skills=True,
         auto_apply_allowlist=(),
         auto_apply_blocklist=(),
+        verify_skills=True,
     )
     return {
         "schema_version": "0.10",
@@ -486,6 +496,9 @@ def handle_cli(args: argparse.Namespace) -> None:
             protect_core_skills=bool(values.get("protect_core_skills")),
             auto_apply_allowlist=tuple(values.get("allow_auto_apply_skill") or ()),
             auto_apply_blocklist=tuple(values.get("block_auto_apply_skill") or ()),
+            verify_command=values.get("verify_command"),
+            verify_cwd=values.get("verify_cwd"),
+            verify_skills=bool(values.get("verify_skills")),
         )
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
         return

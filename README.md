@@ -49,7 +49,7 @@ uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e ~/.hermes/plug
 hermes-curator-evolver bootstrap
 ```
 
-That is the default, model-free path. It writes only low-risk append-only notes to **local agent-created** skills. Official/bundled, hub-installed, plugin-provided, `skills.external_dirs`, pinned, and unknown-source skills are skipped.
+That is the default, model-free path. It writes only low-risk append-only notes to **local agent-created** skills, then validates the changed `SKILL.md` before the apply is considered successful. Official/bundled, hub-installed, plugin-provided, `skills.external_dirs`, pinned, and unknown-source skills are skipped.
 
 Want multilingual semantic/rerank ordering? Make the opt-in explicit:
 
@@ -71,7 +71,7 @@ If Hermes gateway was already running, restart it once so plugin hooks are loade
 
 | 1. Collect | 2. Rank | 3. Improve | 4. Protect |
 |:-:|:-:|:-:|:-:|
-| Tool calls + skill loads + old sessions | Evidence counts; optional Qwen + bge rerank | Daily append-only notes | Only local agent-created skills are writable |
+| Tool calls + skill loads + old sessions | Evidence counts; optional Qwen + bge rerank | Daily append-only notes + post-apply validation | Only local agent-created skills are writable |
 
 ```mermaid
 flowchart LR

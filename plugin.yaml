@@ -1,6 +1,6 @@
 name: curator-evolver
-version: "0.8.0"
-description: Plug-and-play evidence-driven skill evolution plugin with historical session backfill, optional semantic/rerank autorun, and guarded apply.
+version: "0.10.0"
+description: Plug-and-play evidence-driven skill evolution plugin with one-command bootstrap, provenance-safe autorun, historical session backfill, optional semantic/rerank ordering, and guarded apply.
 author: pingchesu
 kind: standalone
 provides_tools:

@@ -29,6 +29,12 @@ classifiers = [
 ]
 dependencies = ["PyYAML>=6"]
 
+[project.urls]
+Homepage = "https://github.com/pingchesu/hermes-curator-evolver"
+Repository = "https://github.com/pingchesu/hermes-curator-evolver"
+Issues = "https://github.com/pingchesu/hermes-curator-evolver/issues"
+Documentation = "https://github.com/pingchesu/hermes-curator-evolver/tree/main/docs"
+
 [project.optional-dependencies]
 dev = ["pytest>=8"]
 semantic = ["sentence-transformers>=3"]

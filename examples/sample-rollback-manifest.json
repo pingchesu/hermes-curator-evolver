@@ -1,0 +1,14 @@
+{
+  "created_at": "2026-05-09T00:00:00Z",
+  "tool": "hermes-curator-evolver",
+  "operation": "guarded-apply",
+  "target": "/home/user/.hermes/skills/local/my-skill/SKILL.md",
+  "target_sha256_before": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "target_sha256_after": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+  "backup_path": "/home/user/.hermes/plugins/curator-evolver/backups/20260509T000000Z/SKILL.md",
+  "validation": {
+    "command": "python -m pytest -q",
+    "exit_code": 0
+  },
+  "rollback_command": "hermes-curator-evolver rollback --manifest /home/user/.hermes/plugins/curator-evolver/backups/20260509T000000Z/manifest.json"
+}

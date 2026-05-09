@@ -1,0 +1,17 @@
+diff --git a/SKILL.md b/SKILL.md
+index 1111111..2222222 100644
+--- a/SKILL.md
++++ b/SKILL.md
+@@ -42,3 +42,12 @@ Verify the plugin is enabled before troubleshooting runtime behavior.
+ 
+ ## Pitfalls
+ 
++<!-- BEGIN hermes-curator-evolver:managed-notes -->
++## Evidence-backed notes
++
++- Observed in 7 recent sessions: plugin installs were more reliable when using
++  `uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e <plugin-dir>`
++  instead of relying on whichever `pip` appears first on PATH.
++- Verify after install with `hermes plugins list` and restart the gateway once
++  when plugin hooks need to be loaded.
++<!-- END hermes-curator-evolver:managed-notes -->

@@ -1,0 +1,27 @@
+{
+  "skill": "hermes-agent",
+  "generated_at": "2026-05-09T00:00:00Z",
+  "target_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "mode": "dry-run",
+  "evidence": [
+    {
+      "type": "tool_sequence",
+      "summary": "Several successful installs used uv pip against the Hermes runtime venv instead of system pip."
+    },
+    {
+      "type": "user_correction",
+      "summary": "User preferred explicit safe rollback instructions before enabling unattended automation."
+    }
+  ],
+  "proposed_update": {
+    "risk": "low",
+    "strategy": "append-only managed note",
+    "text": "When installing plugins into the Hermes runtime, prefer `uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e <plugin-dir>` and verify with `hermes plugins list`."
+  },
+  "guards": {
+    "requires_human_review": true,
+    "requires_exact_sha256_match": true,
+    "requires_approve_flag": true,
+    "backup_before_write": true
+  }
+}

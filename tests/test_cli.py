@@ -128,6 +128,7 @@ def test_standalone_cli_parser_accepts_roadmap_commands():
     assert install_auto.rerank_candidates is True
     assert install_auto.protect_core_skills is True
     assert install_auto.block_auto_apply_skill == ["github-*"]
+    assert install_auto.verify_skills is True
     assert rerank_only_auto.rerank_candidates is True
     assert bootstrap.curator_evolver_command == "bootstrap"
     assert bootstrap.days == 14
@@ -169,6 +170,8 @@ def test_bootstrap_command_runs_backfill_and_installs_auto_timer(monkeypatch, ca
             "schedule": kwargs["schedule"],
             "command": "python -m hermes_curator_evolver auto-run ...",
             "auto_apply_policy": "local-agent-created-skills-only",
+            "verify_command": kwargs.get("verify_command"),
+            "verify_cwd": kwargs.get("verify_cwd"),
         }
 
     monkeypatch.setattr("hermes_curator_evolver.cli.backfill_sessions", fake_backfill_sessions)

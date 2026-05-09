@@ -522,6 +522,25 @@ def test_auto_evolve_skips_external_dir_skill(tmp_path, monkeypatch):
     assert sha256_file(skill_file) == original_hash
 
 
+def test_install_auto_timer_enables_builtin_skill_verify_by_default(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+
+    result = install_auto_timer(
+        schedule="daily",
+        skills_dir=tmp_path / "skills",
+        enable=False,
+    )
+
+    command = result["command"]
+    service_text = Path(result["service_path"]).read_text(encoding="utf-8")
+    assert "--verify-command" in command
+    assert "hermes_curator_evolver.skill_validate" in command
+    assert f"--verify-cwd {tmp_path / 'skills'}" in command
+    assert result["verify_command"].endswith(" -m hermes_curator_evolver.skill_validate")
+    assert result["verify_cwd"] == str(tmp_path / "skills")
+    assert "Environment=PYTHONUNBUFFERED=1" in service_text
+
+
 def test_install_auto_timer_emits_explicit_core_protection_policy(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
 

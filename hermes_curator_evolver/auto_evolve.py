@@ -108,6 +108,12 @@ def _normalize_patterns(patterns: tuple[str, ...] | list[str] | None) -> tuple[s
     return tuple(str(pattern).strip() for pattern in (patterns or ()) if str(pattern).strip())
 
 
+def _systemd_quote(value: str) -> str:
+    """Quote one systemd ExecStart argument while keeping the command readable."""
+
+    return '"' + value.replace('\\', '\\\\').replace('"', '\"') + '"'
+
+
 def _skill_matches_any_pattern(skill_name: str, patterns: tuple[str, ...] | list[str] | None) -> bool:
     normalized_name = skill_name.casefold()
     for pattern in _normalize_patterns(patterns):
@@ -531,6 +537,9 @@ def install_auto_timer(
     protect_core_skills: bool = True,
     auto_apply_allowlist: tuple[str, ...] = (),
     auto_apply_blocklist: tuple[str, ...] = (),
+    verify_command: str | None = None,
+    verify_cwd: str | Path | None = None,
+    verify_skills: bool = True,
 ) -> dict[str, Any]:
     """Install a user systemd timer for automatic evolution.
 
@@ -544,6 +553,10 @@ def install_auto_timer(
     timer_path = unit_dir / "hermes-curator-evolver-auto.timer"
     target_skills = Path(skills_dir) if skills_dir is not None else _default_skills_dir()
     on_calendar = {"hourly": "hourly", "daily": "daily", "weekly": "weekly"}.get(schedule, schedule)
+    effective_verify_command = verify_command
+    effective_verify_cwd = Path(verify_cwd) if verify_cwd is not None else target_skills
+    if apply_low_risk and verify_skills and effective_verify_command is None:
+        effective_verify_command = f"{sys.executable} -m hermes_curator_evolver.skill_validate"
     args = [
         sys.executable,
         "-m",
@@ -568,6 +581,9 @@ def install_auto_timer(
             args.extend(["--allow-auto-apply-skill", pattern])
         for pattern in _normalize_patterns(auto_apply_blocklist):
             args.extend(["--block-auto-apply-skill", pattern])
+    if effective_verify_command:
+        args.extend(["--verify-command", _systemd_quote(effective_verify_command)])
+        args.extend(["--verify-cwd", str(effective_verify_cwd)])
     command = " ".join(args)
     service_path.write_text(
         "\n".join(
@@ -577,6 +593,7 @@ def install_auto_timer(
                 "",
                 "[Service]",
                 "Type=oneshot",
+                "Environment=PYTHONUNBUFFERED=1",
                 f"ExecStart={command}",
                 "",
             ]
@@ -612,6 +629,8 @@ def install_auto_timer(
         "auto_apply_policy": "local-agent-created-skills-only" if apply_low_risk else "dry-run-only",
         "auto_apply_allowlist": list(_normalize_patterns(auto_apply_allowlist)),
         "auto_apply_blocklist": list(_normalize_patterns(auto_apply_blocklist)),
+        "verify_command": effective_verify_command,
+        "verify_cwd": str(effective_verify_cwd) if effective_verify_command else None,
         "command": command,
     }
     if enable:

@@ -84,7 +84,7 @@ Backfill is intentionally model-free. It does not infer missing tool calls from 
 9. If --apply-low-risk is set but --approve-auto-apply is missing:
    refuse to write.
 10. If both write flags are set and the policy gate permits the skill:
-   apply through guarded apply with SHA256 check, backup, optional verify command, and rollback manifest.
+   apply through guarded apply with SHA256 check, backup, post-apply verification, and rollback manifest. Timers installed by `bootstrap`/`install-auto` use the built-in `skill_validate` verifier by default; direct `auto-run` can still provide a custom `--verify-command`.
 ```
 
 ### Pseudocode

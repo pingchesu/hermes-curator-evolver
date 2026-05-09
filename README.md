@@ -9,6 +9,10 @@
   session evidence in, safer skill updates out.
 </p>
 
+<p>
+  If you use Hermes skills heavily and do not want them to silently rot, this plugin turns real usage into reviewable, reversible skill maintenance.
+</p>
+
 [![Hermes Agent](https://img.shields.io/badge/Hermes-Agent-ff6b6b?style=flat-square)](https://github.com/NousResearch/hermes-agent)
 [![Inspired by SkillClaw](https://img.shields.io/badge/Inspired%20by-SkillClaw-f97316?style=flat-square)](https://github.com/AMAP-ML/SkillClaw)
 [![AI Skills](https://img.shields.io/badge/AI-Skills-8A2BE2?style=flat-square)](https://github.com/pingchesu/hermes-curator-evolver)
@@ -28,32 +32,35 @@
 
 ## Contents
 
-- [What problem does this solve?](#what-problem-does-this-solve)
+- [Who this is for](#who-this-is-for)
 - [Quick start: install, backfill, autorun](#quick-start-install-backfill-autorun)
 - [At a glance](#at-a-glance)
+- [Trust boundary](#trust-boundary)
 - [Why this exists](#why-this-exists)
 - [Inspired by SkillClaw, made Hermes-native](#inspired-by-skillclaw-made-hermes-native)
 - [Launch / discussion kit](#launch--discussion-kit)
 - [Architecture](#architecture)
 - [Model usage plan](#model-usage-plan)
 - [Safety model](#safety-model)
+- [Examples and demo](#examples-and-demo)
+- [Feedback wanted](#feedback-wanted)
 - [CLI reference](#cli-reference)
 - [Contributing](#contributing)
 - [Uninstall](#uninstall)
 
-## What problem does this solve?
+## Who this is for
 
-Most agent frameworks can save reusable instructions, but the maintenance loop is still manual: notice a failure, remember which skill was involved, edit the right file, and avoid breaking shared/bundled skills. This plugin adds a conservative feedback loop for Hermes Agent skills.
+Hermes Curator Evolver is for people who treat agent skills as operational memory: debugging playbooks, deployment habits, project conventions, and lessons learned from real work. It helps answer a practical question: **how can those skills improve from evidence without letting automation silently rewrite the library?**
 
-**Use it if you want:**
+Use it when you want:
 
-- an evidence log of which skills and tools were actually used in sessions;
-- old Hermes `session_*.json` history imported into the same evidence store;
-- dry-run reports and proposals before any skill text changes;
-- optional embedding/reranker ordering for multilingual skill discovery;
-- unattended updates limited to managed append-only notes on local agent-created skills.
+- local evidence reports before any skill update,
+- dry-run proposals that can be reviewed like maintenance notes,
+- explicit write approval, exact target-hash checks, backups, and rollback,
+- safe unattended maintenance limited to managed append-only blocks,
+- optional semantic search/rerank only when you choose to enable it.
 
-**Not this:** a general AutoML system, a skill marketplace, or an agent that freely rewrites every prompt it can see. The default path is local, model-free, reversible, and intentionally boring.
+It is **not** a general AutoML system, a skill marketplace, or an agent that freely rewrites every prompt it can see. The default path is local, model-free, reversible, and intentionally boring.
 
 ## Quick start: install, backfill, autorun
 
@@ -65,7 +72,7 @@ uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e ~/.hermes/plug
 hermes-curator-evolver bootstrap
 ```
 
-That is the default, model-free path. It writes only low-risk append-only notes to **local agent-created** skills. Official/bundled, hub-installed, plugin-provided, `skills.external_dirs`, pinned, and unknown-source skills are skipped.
+That is the default, model-free path. It writes only low-risk append-only notes to **local agent-created** skills, then validates the changed `SKILL.md` before the apply is considered successful. Official/bundled, hub-installed, plugin-provided, `skills.external_dirs`, pinned, and unknown-source skills are skipped.
 
 Want multilingual semantic/rerank ordering? Make the opt-in explicit:
 
@@ -87,7 +94,7 @@ If Hermes gateway was already running, restart it once so plugin hooks are loade
 
 | 1. Collect | 2. Rank | 3. Improve | 4. Protect |
 |:-:|:-:|:-:|:-:|
-| Tool calls + skill loads + old sessions | Evidence counts; optional Qwen + bge rerank | Daily append-only notes | Only local agent-created skills are writable |
+| Tool calls + skill loads + old sessions | Evidence counts; optional Qwen + bge rerank | Daily append-only notes + post-apply validation | Only local agent-created skills are writable |
 
 ```mermaid
 flowchart LR
@@ -104,6 +111,18 @@ flowchart LR
 | **Will it rewrite my skills?** | No. Autorun only updates a managed append-only block. |
 | **Will it touch official/team skills?** | No. Provenance gate skips bundled, hub, plugin, and `external_dirs` skills. |
 | **Can I inspect first?** | Yes. `auto-run --format json` is dry-run by default. |
+
+## Trust boundary
+
+The default experience is designed to be inspectable before it is writable:
+
+- **Read-only first:** `status`, `report`, `analyze`, `candidates`, `propose`, `verify`, and default `auto-run` do not mutate skills.
+- **No blind model dependency:** the default bootstrap path is model-free; model-assisted proposal drafting and semantic/rerank ordering require explicit opt-in flags.
+- **Narrow unattended writes:** low-risk autorun writes only a managed append-only notes block, and only after both `--apply-low-risk` and `--approve-auto-apply`.
+- **Source provenance gate:** official/bundled, hub-installed, plugin-provided, `skills.external_dirs`, pinned, and unknown-source skills are skipped from unattended writes.
+- **Rollback is concrete:** guarded apply records backups and manifests so you can restore exact prior content.
+
+For a quick visual walkthrough, see [docs/demo-script.md](docs/demo-script.md). For synthetic output examples, see [examples/](examples/).
 
 ## Why this exists
 
@@ -133,7 +152,8 @@ Useful links for reviewers and community posts:
 - [docs/core-algorithm.md](docs/core-algorithm.md) — exact evidence, candidate-selection, semantic/rerank, and autorun algorithm.
 - [docs/architecture.md](docs/architecture.md) — one-page architecture and safety boundary.
 - [docs/after-install.md](docs/after-install.md) — what to expect after install, health checks, timers, and uninstall.
-- [docs/reddit-launch-kit.md](docs/reddit-launch-kit.md) — subreddit-specific post drafts, titles, and disclosure notes.
+- [docs/reddit-launch.md](docs/reddit-launch.md) — recommended cadence and concise community-post drafts.
+- [docs/reddit-launch-kit.md](docs/reddit-launch-kit.md) — expanded subreddit-specific titles, replies, and disclosure notes.
 
 ## Architecture
 
@@ -192,6 +212,28 @@ Hard defaults:
 - ✅ `auto-run` writes only managed append-only blocks and still requires both `--apply-low-risk` and `--approve-auto-apply` before mutation.
 - ✅ Even with both write flags, unattended auto-apply writes only local agent-created skills. Official/bundled skills (`.bundled_manifest`), hub-installed skills (`.hub/lock.json`), plugin-provided skills, `skills.external_dirs`, pinned skills, and unknown sources are skipped.
 - ✅ `--semantic-candidates` / `--rerank-candidates` are explicit opt-ins and only reorder skills that already passed the evidence threshold.
+
+## Examples and demo
+
+If you want to inspect the behavior before installing, start here:
+
+- [60-second demo script](docs/demo-script.md) — terminal walkthrough for a GIF/asciinema recording.
+- [Example artifacts](examples/) — synthetic report, proposal, append-only diff, and rollback manifest.
+- [Promotion readiness plan](docs/promotion-readiness-plan.md) — what changed to make the repo easier to evaluate publicly.
+- [Architecture notes](docs/architecture.md) — one-page data flow and safety boundary.
+- [Post-install guide](docs/after-install.md) — health checks, timer logs, model details, and uninstall steps.
+
+## Feedback wanted
+
+This project is intentionally conservative, and feedback is most useful around the trust model:
+
+1. Is the provenance gate strict enough for unattended skill maintenance?
+2. Should proposals become PR-like diffs instead of append-only notes?
+3. Which evidence signals should count: tool sequences, repeated fixes, user corrections, failed commands, or something else?
+4. What rollback UX would make automated skill maintenance trustworthy?
+5. What evaluation would show that a skill update actually improves future agent behavior?
+
+If you are sharing or reviewing this project publicly, the community launch notes and draft posts live in [docs/reddit-launch.md](docs/reddit-launch.md).
 
 ## CLI reference
 

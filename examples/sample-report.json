@@ -1,0 +1,30 @@
+{
+  "generated_at": "2026-05-09T00:00:00Z",
+  "lookback_days": 14,
+  "db_path": "~/.hermes/plugins/curator-evolver/data/evidence.sqlite",
+  "summary": {
+    "total_tool_calls": 128,
+    "total_skill_loads": 42,
+    "skills_with_evidence": 5
+  },
+  "top_skills": [
+    {
+      "skill": "hermes-agent",
+      "evidence_count": 31,
+      "signals": [
+        "loaded before troubleshooting plugin install",
+        "followed by repeated gateway restart commands",
+        "user correction mentioned uv pip path"
+      ]
+    },
+    {
+      "skill": "github-pr-workflow",
+      "evidence_count": 18,
+      "signals": [
+        "loaded before PR creation",
+        "followed by CI polling",
+        "followed by issue-link remediation"
+      ]
+    }
+  ]
+}

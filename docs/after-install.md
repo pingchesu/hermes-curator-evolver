@@ -36,6 +36,7 @@ Hermes sessions / tool calls / skill usage / optional historical backfill
   → local-agent-created provenance policy gate
   → append-only managed SKILL.md evidence note
   → backup + rollback manifest
+  → post-apply SKILL.md validation
 ```
 
 The timer runs the equivalent of:
@@ -46,7 +47,9 @@ hermes-curator-evolver auto-run \
   --format json \
   --apply-low-risk \
   --approve-auto-apply \
-  --protect-core-skills
+  --protect-core-skills \
+  --verify-command "python -m hermes_curator_evolver.skill_validate" \
+  --verify-cwd ~/.hermes/skills
 ```
 
 The semantic/rerank timer adds:
@@ -62,7 +65,7 @@ hermes-curator-evolver auto-run \
   --protect-core-skills
 ```
 
-Autorun does **not** rewrite whole skills, delete existing content, change Hermes Agent core, mutate pinned skills, or auto-apply to official/bundled, hub-installed, plugin-provided, `external_dirs`, or unknown-source skills. `--allow-auto-apply-skill` can relax the extra core-name guard only inside the local agent-created boundary; it does not override provenance. If semantic/rerank model execution fails locally, autorun records the error and falls back to deterministic evidence ordering instead of crashing.
+Autorun does **not** rewrite whole skills, delete existing content, change Hermes Agent core, mutate pinned skills, or auto-apply to official/bundled, hub-installed, plugin-provided, `external_dirs`, or unknown-source skills. The installed timer also runs the built-in `skill_validate` check after each successful write; if validation fails, guarded apply rolls the skill back and records the failed verification in the manifest. `--allow-auto-apply-skill` can relax the extra core-name guard only inside the local agent-created boundary; it does not override provenance. If semantic/rerank model execution fails locally, autorun records the error and falls back to deterministic evidence ordering instead of crashing.
 
 ## Historical session backfill
 

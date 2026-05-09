@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 from datetime import datetime, timezone
@@ -27,7 +28,7 @@ def _write_manifest(path: Path, data: dict[str, Any]) -> None:
     path.write_text(json.dumps(data, ensure_ascii=False, indent=2, sort_keys=True), encoding="utf-8")
 
 
-def _run_verify(command: str | None, cwd: Path | None) -> dict[str, Any]:
+def _run_verify(command: str | None, cwd: Path | None, env: dict[str, str] | None = None) -> dict[str, Any]:
     if not command:
         return {"enabled": False, "passed": True, "exit_code": 0, "output": ""}
     try:
@@ -40,6 +41,7 @@ def _run_verify(command: str | None, cwd: Path | None) -> dict[str, Any]:
             stderr=subprocess.STDOUT,
             timeout=300,
             check=False,
+            env={**os.environ, **(env or {})},
         )
     except subprocess.TimeoutExpired as exc:
         return {
@@ -109,7 +111,18 @@ def apply_guarded_patch(
 
     target.write_text(new_content, encoding="utf-8")
     manifest["new_sha256"] = sha256_file(target)
-    verify = _run_verify(verify_command, Path(verify_cwd) if verify_cwd else target.parent)
+    verify_env = {
+        "HERMES_CURATOR_TARGET_PATH": str(target),
+        "HERMES_CURATOR_BACKUP_PATH": str(backup_path),
+        "HERMES_CURATOR_MANIFEST_PATH": str(manifest_path),
+        "HERMES_CURATOR_ORIGINAL_SHA256": current_hash,
+        "HERMES_CURATOR_NEW_SHA256": str(manifest["new_sha256"]),
+    }
+    verify = _run_verify(
+        verify_command,
+        Path(verify_cwd) if verify_cwd else target.parent,
+        env=verify_env,
+    )
     manifest["verify"] = verify
     if not verify["passed"]:
         shutil.copy2(backup_path, target)

@@ -1,4 +1,5 @@
 import json
+import sys
 from pathlib import Path
 
 from hermes_curator_evolver.guarded_apply import (
@@ -132,3 +133,37 @@ def test_rollback_refuses_to_clobber_post_apply_changes_without_force(tmp_path):
 
     assert forced["rolled_back"] is True
     assert target.read_text(encoding="utf-8") == "old"
+
+
+def test_guarded_apply_exposes_target_context_to_verify_command(tmp_path):
+    target = tmp_path / "SKILL.md"
+    target.write_text("old", encoding="utf-8")
+    seen = tmp_path / "seen.json"
+    verifier = tmp_path / "verify_env.py"
+    verifier.write_text(
+        "import json, os, pathlib\n"
+        f"pathlib.Path({str(seen)!r}).write_text(json.dumps({{\n"
+        "    'target': os.environ.get('HERMES_CURATOR_TARGET_PATH'),\n"
+        "    'backup': os.environ.get('HERMES_CURATOR_BACKUP_PATH'),\n"
+        "    'manifest': os.environ.get('HERMES_CURATOR_MANIFEST_PATH'),\n"
+        "    'new_sha': os.environ.get('HERMES_CURATOR_NEW_SHA256'),\n"
+        "}))\n",
+        encoding="utf-8",
+    )
+
+    result = apply_guarded_patch(
+        target_path=target,
+        new_content="new",
+        expected_sha256=sha256_file(target),
+        approved=True,
+        backup_root=tmp_path / "backups",
+        verify_command=f"{sys.executable} {verifier}",
+        verify_cwd=tmp_path,
+    )
+
+    assert result["applied"] is True
+    data = json.loads(seen.read_text(encoding="utf-8"))
+    assert data["target"] == str(target)
+    assert data["backup"] == result["backup_path"]
+    assert data["manifest"] == result["manifest_path"]
+    assert data["new_sha"] == result["new_sha256"]

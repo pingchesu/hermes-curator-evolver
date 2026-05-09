@@ -28,16 +28,32 @@
 
 ## Contents
 
+- [What problem does this solve?](#what-problem-does-this-solve)
 - [Quick start: install, backfill, autorun](#quick-start-install-backfill-autorun)
 - [At a glance](#at-a-glance)
 - [Why this exists](#why-this-exists)
 - [Inspired by SkillClaw, made Hermes-native](#inspired-by-skillclaw-made-hermes-native)
+- [Launch / discussion kit](#launch--discussion-kit)
 - [Architecture](#architecture)
 - [Model usage plan](#model-usage-plan)
 - [Safety model](#safety-model)
 - [CLI reference](#cli-reference)
 - [Contributing](#contributing)
 - [Uninstall](#uninstall)
+
+## What problem does this solve?
+
+Most agent frameworks can save reusable instructions, but the maintenance loop is still manual: notice a failure, remember which skill was involved, edit the right file, and avoid breaking shared/bundled skills. This plugin adds a conservative feedback loop for Hermes Agent skills.
+
+**Use it if you want:**
+
+- an evidence log of which skills and tools were actually used in sessions;
+- old Hermes `session_*.json` history imported into the same evidence store;
+- dry-run reports and proposals before any skill text changes;
+- optional embedding/reranker ordering for multilingual skill discovery;
+- unattended updates limited to managed append-only notes on local agent-created skills.
+
+**Not this:** a general AutoML system, a skill marketplace, or an agent that freely rewrites every prompt it can see. The default path is local, model-free, reversible, and intentionally boring.
 
 ## Quick start: install, backfill, autorun
 
@@ -105,6 +121,19 @@ Hermes skills are operational memory. They capture how an agent should debug, de
 | Retrieve similar skills before editing. | Lexical search by default; optional Qwen embeddings + bge reranking. |
 | Verify skill changes. | Dry-run proposals, verifier gates, exact SHA match, backups, rollback. |
 | Avoid uncontrolled mutation. | No Hermes core patches, pinned skills are skipped, official/hub/external/plugin skills are protected from unattended writes, autorun is append-only. |
+
+## Launch / discussion kit
+
+If you are evaluating or sharing the project, start with the smallest concrete claim:
+
+> A local-first Hermes Agent plugin that turns session history into evidence-backed skill maintenance, with dry-run proposals and provenance-safe append-only autorun.
+
+Useful links for reviewers and community posts:
+
+- [docs/core-algorithm.md](docs/core-algorithm.md) — exact evidence, candidate-selection, semantic/rerank, and autorun algorithm.
+- [docs/architecture.md](docs/architecture.md) — one-page architecture and safety boundary.
+- [docs/after-install.md](docs/after-install.md) — what to expect after install, health checks, timers, and uninstall.
+- [docs/reddit-launch-kit.md](docs/reddit-launch-kit.md) — subreddit-specific post drafts, titles, and disclosure notes.
 
 ## Architecture
 

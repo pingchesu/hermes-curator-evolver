@@ -5,11 +5,19 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+import yaml
+
+
+_MANAGED_BLOCK_START = "<!-- curator-evolver:auto:start -->"
+_MANAGED_BLOCK_END = "<!-- curator-evolver:auto:end -->"
+_BUILTIN_HARD_CAP_CHARS = 100_000
 
 
 def sha256_file(path: str | Path) -> str:
@@ -65,6 +73,135 @@ def _run_verify(command: str | None, cwd: Path | None, env: dict[str, str] | Non
     }
 
 
+def _run_builtin_cheap_check(target: Path) -> dict[str, Any]:
+    """In-process structural check for the post-write SKILL.md.
+
+    This is the cheap stage of the staged verifier gate. It enforces invariants
+    the plugin already promises (size cap and managed-block boundedness) so an
+    expensive `verify_command` only runs when the file at least looks sane.
+    """
+
+    try:
+        text = target.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as exc:
+        return {
+            "name": "builtin-structural",
+            "enabled": True,
+            "passed": False,
+            "reason": f"read-failed: {exc}",
+        }
+    failures: list[str] = []
+    if len(text) > _BUILTIN_HARD_CAP_CHARS:
+        failures.append(f"over-hard-cap:{len(text)}>{_BUILTIN_HARD_CAP_CHARS}")
+    start_count = text.count(_MANAGED_BLOCK_START)
+    end_count = text.count(_MANAGED_BLOCK_END)
+    if start_count != end_count:
+        failures.append(f"unbalanced-managed-block-markers:{start_count}!={end_count}")
+    if start_count > 1:
+        failures.append(f"duplicate-managed-block:{start_count}")
+    if start_count == 1:
+        if text.find(_MANAGED_BLOCK_END) <= text.find(_MANAGED_BLOCK_START):
+            failures.append("managed-block-end-before-start")
+    if text.startswith("---"):
+        match = re.match(r"^---\s*\n(?P<body>.*?)\n---\s*\n", text, re.DOTALL)
+        if not match:
+            failures.append("frontmatter-not-parseable")
+        else:
+            try:
+                parsed = yaml.safe_load(match.group("body")) or {}
+            except yaml.YAMLError as exc:
+                failures.append(f"frontmatter-not-parseable:{exc.__class__.__name__}")
+            else:
+                if not isinstance(parsed, dict):
+                    failures.append("frontmatter-not-mapping")
+    return {
+        "name": "builtin-structural",
+        "enabled": True,
+        "passed": not failures,
+        "reason": "ok" if not failures else ",".join(failures),
+        "content_chars": len(text),
+    }
+
+
+def _run_staged_verify(
+    *,
+    target: Path,
+    pre_verify_command: str | None,
+    verify_command: str | None,
+    verify_cwd: Path | None,
+    env: dict[str, str],
+) -> dict[str, Any]:
+    """Run the cheap-then-expensive verifier chain.
+
+    The aggregate result is returned in a backward-compatible shape:
+    ``passed`` / ``exit_code`` / ``output`` reflect the first failing stage,
+    or the final stage if all passed. A ``stages`` list exposes each stage's
+    individual result. ``enabled`` is True if any stage actually ran.
+    """
+
+    stages: list[dict[str, Any]] = []
+
+    cheap = _run_builtin_cheap_check(target)
+    stages.append(cheap)
+    if not cheap["passed"]:
+        return {
+            "enabled": True,
+            "staged": True,
+            "passed": False,
+            "exit_code": 1,
+            "output": f"builtin-structural check failed: {cheap.get('reason')}",
+            "failed_stage": cheap["name"],
+            "stages": stages,
+        }
+
+    if pre_verify_command:
+        pre = _run_verify(pre_verify_command, verify_cwd, env=env)
+        pre_stage = {"name": "pre-verify-command", **pre}
+        stages.append(pre_stage)
+        if not pre["passed"]:
+            return {
+                "enabled": True,
+                "staged": True,
+                "passed": False,
+                "exit_code": pre["exit_code"],
+                "output": pre["output"],
+                "failed_stage": pre_stage["name"],
+                "stages": stages,
+            }
+
+    if verify_command:
+        expensive = _run_verify(verify_command, verify_cwd, env=env)
+        expensive_stage = {"name": "verify-command", **expensive}
+        stages.append(expensive_stage)
+        if not expensive["passed"]:
+            return {
+                "enabled": True,
+                "staged": True,
+                "passed": False,
+                "exit_code": expensive["exit_code"],
+                "output": expensive["output"],
+                "failed_stage": expensive_stage["name"],
+                "stages": stages,
+            }
+        return {
+            "enabled": True,
+            "staged": True,
+            "passed": True,
+            "exit_code": expensive["exit_code"],
+            "output": expensive["output"],
+            "stages": stages,
+        }
+
+    return {
+        "enabled": True,
+        "staged": True,
+        "passed": True,
+        "exit_code": 0,
+        "output": "",
+        "stages": stages,
+    }
+
+
 def apply_guarded_patch(
     *,
     target_path: str | Path,
@@ -74,8 +211,20 @@ def apply_guarded_patch(
     backup_root: str | Path,
     verify_command: str | None = None,
     verify_cwd: str | Path | None = None,
+    pre_verify_command: str | None = None,
+    staged_verify: bool = False,
 ) -> dict[str, Any]:
-    """Apply a reviewed patch with approval/hash/backup/verify gates."""
+    """Apply a reviewed patch with approval/hash/backup/verify gates.
+
+    When ``staged_verify`` is set (or a ``pre_verify_command`` is provided), a
+    cheap in-process structural check runs first, then an optional cheap
+    ``pre_verify_command``, then the existing ``verify_command``. The expensive
+    stage is skipped entirely if any earlier stage fails, and any failure after
+    the write triggers the same rollback path callers already rely on. The
+    returned ``verify`` dict keeps ``passed`` / ``exit_code`` / ``output`` for
+    backward compatibility and adds a ``stages`` list when staged verification
+    is in use.
+    """
 
     target = Path(target_path)
     if not approved:
@@ -98,7 +247,7 @@ def apply_guarded_patch(
     shutil.copy2(target, backup_path)
     manifest_path = backup_dir / "manifest.json"
     manifest = {
-        "schema_version": "0.4",
+        "schema_version": "0.5",
         "target_path": str(target),
         "backup_path": str(backup_path),
         "original_sha256": current_hash,
@@ -118,16 +267,28 @@ def apply_guarded_patch(
         "HERMES_CURATOR_ORIGINAL_SHA256": current_hash,
         "HERMES_CURATOR_NEW_SHA256": str(manifest["new_sha256"]),
     }
-    verify = _run_verify(
-        verify_command,
-        Path(verify_cwd) if verify_cwd else target.parent,
-        env=verify_env,
-    )
+    use_staged = bool(staged_verify or pre_verify_command)
+    if use_staged:
+        verify = _run_staged_verify(
+            target=target,
+            pre_verify_command=pre_verify_command,
+            verify_command=verify_command,
+            verify_cwd=Path(verify_cwd) if verify_cwd else target.parent,
+            env=verify_env,
+        )
+    else:
+        verify = _run_verify(
+            verify_command,
+            Path(verify_cwd) if verify_cwd else target.parent,
+            env=verify_env,
+        )
     manifest["verify"] = verify
     if not verify["passed"]:
         shutil.copy2(backup_path, target)
         manifest["rolled_back"] = True
         manifest["rollback_reason"] = "verify-failed"
+        if verify.get("failed_stage"):
+            manifest["rollback_failed_stage"] = verify["failed_stage"]
         _write_manifest(manifest_path, manifest)
         return {
             "applied": False,

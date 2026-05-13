@@ -82,6 +82,8 @@ class AutoEvolveConfig:
     approve_auto_apply: bool = False
     verify_command: str | None = None
     verify_cwd: str | Path | None = None
+    pre_verify_command: str | None = None
+    staged_verify: bool = False
     semantic_candidates: bool = False
     rerank_candidates: bool = False
     embedding_backend: Any | None = None
@@ -89,6 +91,46 @@ class AutoEvolveConfig:
     protect_core_skills: bool = True
     auto_apply_allowlist: tuple[str, ...] = ()
     auto_apply_blocklist: tuple[str, ...] = ()
+    variants: int = 1
+
+
+@dataclass(frozen=True)
+class _VariantSpec:
+    """Deterministic recipe for one bounded managed-block candidate."""
+
+    name: str
+    evidence_limit: int
+    guidance_style: str
+    force_spillover: bool = False
+
+
+# Deterministic ordering: variant 0 is the prior default so single-variant
+# runs remain byte-identical to the pre-variants behavior.
+_VARIANT_SPECS: tuple[_VariantSpec, ...] = (
+    _VariantSpec(name="default-verify-first", evidence_limit=5, guidance_style="verify-first"),
+    _VariantSpec(name="compact-evidence-first", evidence_limit=3, guidance_style="evidence-first"),
+    _VariantSpec(name="wide-errors-first", evidence_limit=8, guidance_style="errors-first"),
+    _VariantSpec(name="spillover-minimal-inline", evidence_limit=2, guidance_style="verify-first", force_spillover=True),
+)
+
+
+_GUIDANCE_BULLETS: dict[str, tuple[str, ...]] = {
+    "verify-first": (
+        "When this skill is relevant, check these observed signals before choosing a workflow.",
+        "Prefer targeted verification over broad retries when similar errors recur.",
+        "If a repeated issue is understood, replace this evidence note with a concise human-readable SOP update.",
+    ),
+    "evidence-first": (
+        "Reuse the matching evidence row above before re-running the same tool from scratch.",
+        "When this skill is relevant, check these observed signals before choosing a workflow.",
+        "If a repeated issue is understood, replace this evidence note with a concise human-readable SOP update.",
+    ),
+    "errors-first": (
+        "Replay the most recent error-marked evidence rows first; they are the strongest signal that something changed.",
+        "Prefer targeted verification over broad retries when similar errors recur.",
+        "If a repeated issue is understood, replace this evidence note with a concise human-readable SOP update.",
+    ),
+}
 
 
 def _default_skills_dir() -> Path:
@@ -202,6 +244,7 @@ def _managed_block(
     generated_at: str | None = None,
     evidence_limit: int = 5,
     detail_reference_path: str | None = None,
+    guidance_style: str = "verify-first",
 ) -> str:
     generated_at = generated_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
     evidence_lines = _format_evidence_rows(evidence_rows, limit=evidence_limit)
@@ -212,6 +255,7 @@ def _managed_block(
             f"- Detailed evidence moved to `{detail_reference_path}` to keep this SKILL.md below the write limit.",
             *evidence_lines[:1],
         ]
+    guidance = _GUIDANCE_BULLETS.get(guidance_style, _GUIDANCE_BULLETS["verify-first"])
     return "\n".join(
         [
             _START,
@@ -231,9 +275,7 @@ def _managed_block(
             *evidence_lines,
             "",
             "### Agent guidance",
-            "- When this skill is relevant, check these observed signals before choosing a workflow.",
-            "- Prefer targeted verification over broad retries when similar errors recur.",
-            "- If a repeated issue is understood, replace this evidence note with a concise human-readable SOP update.",
+            *(f"- {line}" for line in guidance),
             _END,
             "",
         ]
@@ -293,6 +335,74 @@ def _format_evidence_reference(
     return "\n".join(lines).rstrip() + "\n"
 
 
+def _prepare_variant(
+    *,
+    skill_name: str,
+    skill_text: str,
+    days: int,
+    summary: dict[str, Any],
+    evidence_rows: list[dict[str, Any]],
+    variant: _VariantSpec,
+    generated_at: str,
+    max_content_chars: int,
+    soft_content_chars: int,
+) -> PreparedSkillUpdate:
+    """Produce a single bounded update for one variant spec."""
+
+    if len(skill_text) > max_content_chars:
+        return PreparedSkillUpdate(
+            content=skill_text,
+            size_strategy="skip-hard-cap",
+            skipped_reason="skill-content-hard-cap",
+        )
+
+    if not variant.force_spillover:
+        inline_block = _managed_block(
+            skill_name=skill_name,
+            days=days,
+            summary=summary,
+            evidence_rows=evidence_rows,
+            generated_at=generated_at,
+            evidence_limit=variant.evidence_limit,
+            guidance_style=variant.guidance_style,
+        )
+        inline = _apply_managed_block(skill_text, inline_block)
+        if len(inline) <= soft_content_chars:
+            return PreparedSkillUpdate(content=inline, size_strategy="inline")
+
+    reference_path = _evidence_reference_path(skill_name=skill_name, generated_at=generated_at)
+    compact_block = _managed_block(
+        skill_name=skill_name,
+        days=days,
+        summary=summary,
+        evidence_rows=evidence_rows,
+        generated_at=generated_at,
+        evidence_limit=1 if variant.force_spillover else min(variant.evidence_limit, 1),
+        detail_reference_path=reference_path,
+        guidance_style=variant.guidance_style,
+    )
+    compact = _apply_managed_block(skill_text, compact_block)
+    if len(compact) > max_content_chars:
+        return PreparedSkillUpdate(
+            content=skill_text,
+            size_strategy="skip-hard-cap",
+            skipped_reason="skill-content-hard-cap",
+        )
+    return PreparedSkillUpdate(
+        content=compact,
+        size_strategy="reference-spillover",
+        support_files={
+            reference_path: _format_evidence_reference(
+                skill_name=skill_name,
+                generated_at=generated_at,
+                days=days,
+                summary=summary,
+                evidence_rows=evidence_rows,
+            )
+        },
+    )
+
+
 def prepare_low_risk_skill_update(
     *,
     skill_name: str,
@@ -309,58 +419,136 @@ def prepare_low_risk_skill_update(
     already large or the inline managed block would push it beyond the soft cap,
     detailed evidence is spilled into a references/ support file and the main
     block keeps only a pointer plus compact summary.
+
+    This is the default single-variant path; multi-variant generation lives in
+    `generate_variants` and only kicks in when the caller asks for it.
     """
 
-    if len(skill_text) > max_content_chars:
-        return PreparedSkillUpdate(
-            content=skill_text,
-            size_strategy="skip-hard-cap",
-            skipped_reason="skill-content-hard-cap",
-        )
-
     generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    inline_block = _managed_block(
+    return _prepare_variant(
         skill_name=skill_name,
+        skill_text=skill_text,
         days=days,
         summary=summary,
         evidence_rows=evidence_rows,
+        variant=_VARIANT_SPECS[0],
         generated_at=generated_at,
+        max_content_chars=max_content_chars,
+        soft_content_chars=soft_content_chars,
     )
-    inline = _apply_managed_block(skill_text, inline_block)
-    if len(inline) <= soft_content_chars:
-        return PreparedSkillUpdate(content=inline, size_strategy="inline")
 
-    reference_path = _evidence_reference_path(skill_name=skill_name, generated_at=generated_at)
-    compact_block = _managed_block(
-        skill_name=skill_name,
-        days=days,
-        summary=summary,
-        evidence_rows=evidence_rows,
-        generated_at=generated_at,
-        evidence_limit=1,
-        detail_reference_path=reference_path,
-    )
-    compact = _apply_managed_block(skill_text, compact_block)
-    if len(compact) > max_content_chars:
-        return PreparedSkillUpdate(
-            content=skill_text,
-            size_strategy="skip-hard-cap",
-            skipped_reason="skill-content-hard-cap",
+
+def _score_variant(
+    *,
+    prepared: PreparedSkillUpdate,
+    original: str,
+    soft_cap: int,
+    hard_cap: int,
+) -> dict[str, Any]:
+    """Return a deterministic score breakdown for a prepared variant.
+
+    Higher score wins. Skipped variants (hard cap) score very low so they are
+    never selected unless every variant skips.
+    """
+
+    score = 0
+    breakdown: list[str] = []
+    if prepared.skipped_reason:
+        return {"score": -1_000_000, "breakdown": [f"skipped:{prepared.skipped_reason}"]}
+    if prepared.size_strategy == "inline":
+        score += 100
+        breakdown.append("inline:+100")
+    else:
+        breakdown.append("spillover:+0")
+    overflow_soft = max(0, len(prepared.content) - soft_cap)
+    if overflow_soft:
+        penalty = overflow_soft // 100
+        score -= penalty
+        breakdown.append(f"over-soft-cap:-{penalty}")
+    slack = max(0, hard_cap - len(prepared.content))
+    slack_bonus = min(slack // 1000, 10)
+    score += slack_bonus
+    breakdown.append(f"hard-cap-slack:+{slack_bonus}")
+    diff = abs(len(prepared.content) - len(original))
+    diff_penalty = min(diff // 1000, 20)
+    score -= diff_penalty
+    breakdown.append(f"diff-from-original:-{diff_penalty}")
+    return {"score": score, "breakdown": breakdown}
+
+
+def generate_variants(
+    *,
+    skill_name: str,
+    skill_text: str,
+    days: int,
+    summary: dict[str, Any],
+    evidence_rows: list[dict[str, Any]],
+    count: int,
+    generated_at: str | None = None,
+    max_content_chars: int = _MAX_SKILL_CONTENT_CHARS,
+    soft_content_chars: int = _SOFT_SKILL_CONTENT_CHARS,
+) -> list[dict[str, Any]]:
+    """Deterministically produce up to `count` bounded-update candidates.
+
+    Variant 0 is always the prior default behavior, so `count=1` is
+    byte-identical to the pre-variants single-variant path. Variants are
+    described by `_VARIANT_SPECS` and only vary knobs already inside the
+    bounded mutation policy (evidence row count, spillover strategy, guidance
+    phrasing).
+    """
+
+    count = max(1, min(int(count), len(_VARIANT_SPECS)))
+    generated_at = generated_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
+    results: list[dict[str, Any]] = []
+    for index, spec in enumerate(_VARIANT_SPECS[:count]):
+        prepared = _prepare_variant(
+            skill_name=skill_name,
+            skill_text=skill_text,
+            days=days,
+            summary=summary,
+            evidence_rows=evidence_rows,
+            variant=spec,
+            generated_at=generated_at,
+            max_content_chars=max_content_chars,
+            soft_content_chars=soft_content_chars,
         )
+        score = _score_variant(
+            prepared=prepared,
+            original=skill_text,
+            soft_cap=soft_content_chars,
+            hard_cap=max_content_chars,
+        )
+        results.append(
+            {
+                "index": index,
+                "name": spec.name,
+                "spec": {
+                    "evidence_limit": spec.evidence_limit,
+                    "guidance_style": spec.guidance_style,
+                    "force_spillover": spec.force_spillover,
+                },
+                "prepared": prepared,
+                "size_strategy": prepared.size_strategy,
+                "skipped_reason": prepared.skipped_reason,
+                "content_chars": len(prepared.content),
+                "support_files": sorted(prepared.support_files),
+                "score": score["score"],
+                "score_breakdown": score["breakdown"],
+            }
+        )
+    return results
 
-    return PreparedSkillUpdate(
-        content=compact,
-        size_strategy="reference-spillover",
-        support_files={
-            reference_path: _format_evidence_reference(
-                skill_name=skill_name,
-                generated_at=generated_at,
-                days=days,
-                summary=summary,
-                evidence_rows=evidence_rows,
-            )
-        },
-    )
+
+def select_winning_variant(variants: list[dict[str, Any]]) -> dict[str, Any]:
+    """Return the deterministic winning variant.
+
+    Ties are broken by variant index so the result is reproducible across
+    runs given identical inputs.
+    """
+
+    if not variants:
+        raise ValueError("select_winning_variant requires at least one variant")
+    return max(variants, key=lambda v: (v["score"], -v["index"]))
 
 
 def build_low_risk_skill_update(
@@ -578,13 +766,39 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
         skill_report = build_report(store, days=days, skill=name)
         skill_summary = skill_report.get("summary") or {}
         evidence_rows = skill_report.get("skill_evidence") or []
-        prepared = prepare_low_risk_skill_update(
+        variants_requested = _bounded(cfg.variants or 1, minimum=1, maximum=len(_VARIANT_SPECS))
+        variant_results = generate_variants(
             skill_name=name,
             skill_text=original,
             days=days,
             summary=skill_summary,
             evidence_rows=evidence_rows,
+            count=variants_requested,
         )
+        winning = select_winning_variant(variant_results)
+        prepared = winning["prepared"]
+        variants_summary = [
+            {
+                "index": variant["index"],
+                "name": variant["name"],
+                "spec": variant["spec"],
+                "size_strategy": variant["size_strategy"],
+                "skipped_reason": variant["skipped_reason"],
+                "content_chars": variant["content_chars"],
+                "support_files": variant["support_files"],
+                "score": variant["score"],
+                "score_breakdown": variant["score_breakdown"],
+                "selected": variant["index"] == winning["index"],
+            }
+            for variant in variant_results
+        ]
+        candidate["variants_requested"] = variants_requested
+        candidate["variants"] = variants_summary
+        candidate["selected_variant"] = {
+            "index": winning["index"],
+            "name": winning["name"],
+            "score": winning["score"],
+        }
         if prepared.skipped_reason:
             candidate["status"] = "skipped"
             candidate["reason"] = prepared.skipped_reason
@@ -627,6 +841,8 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
                     backup_root=backup_dir,
                     verify_command=cfg.verify_command,
                     verify_cwd=cfg.verify_cwd or skills_dir,
+                    pre_verify_command=cfg.pre_verify_command,
+                    staged_verify=bool(cfg.staged_verify or cfg.pre_verify_command),
                 )
                 candidate["apply_result"] = apply_result
                 if apply_result.get("applied"):
@@ -670,6 +886,9 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
             "protect_core_skills": bool(cfg.protect_core_skills),
             "auto_apply_allowlist": list(_normalize_patterns(cfg.auto_apply_allowlist)),
             "auto_apply_blocklist": list(_normalize_patterns(cfg.auto_apply_blocklist)),
+            "variants": _bounded(cfg.variants or 1, minimum=1, maximum=len(_VARIANT_SPECS)),
+            "staged_verify": bool(cfg.staged_verify or cfg.pre_verify_command),
+            "pre_verify_command": cfg.pre_verify_command,
         },
         "selection": selection,
         "summary": {

@@ -154,6 +154,7 @@ Useful links for reviewers and community posts:
 - [docs/core-algorithm.md](docs/core-algorithm.md) — exact evidence, candidate-selection, semantic/rerank, and autorun algorithm.
 - [docs/architecture.md](docs/architecture.md) — one-page architecture and safety boundary.
 - [docs/after-install.md](docs/after-install.md) — what to expect after install, health checks, timers, and uninstall.
+- [docs/hyperagents-design-notes.md](docs/hyperagents-design-notes.md) — clean-room design notes explaining why HyperAgents is *not* a dependency and which concepts (multi-variant candidates, staged verifier) are adapted.
 - [docs/reddit-launch.md](docs/reddit-launch.md) — recommended cadence and concise community-post drafts.
 - [docs/reddit-launch-kit.md](docs/reddit-launch-kit.md) — expanded subreddit-specific titles, replies, and disclosure notes.
 
@@ -189,6 +190,7 @@ flowchart LR
 | v0.9 | None | Provenance-safe unattended auto-apply. | Writes only local agent-created skills; skips bundled, hub, plugin, external, pinned, and unknown sources. |
 | v0.10 | None by default | One-command setup and clearer public README. | `bootstrap` backfills sessions and installs/enables autorun; `bootstrap --semantic` is explicit model opt-in. |
 | v0.11 | None | Size-bounded unattended auto-apply. | Keeps `SKILL.md` under the 100k tool cap by targeting a 90k soft cap, spilling bulky evidence into `references/`, and skipping already-over-hard-cap skills. |
+| v0.12 | None by default | Clean-room multi-variant candidate selection and staged verification inspired by HyperAgents concepts. | `--variants N` is deterministic/model-free; `--staged-verify` runs local structural checks before optional user-supplied verify commands. No HyperAgents dependency or model-generated code execution. |
 
 ## Safety model
 
@@ -216,6 +218,8 @@ Hard defaults:
 - ✅ Bulky autorun evidence spills into `references/` instead of growing `SKILL.md` past the tool cap; already-over-hard-cap skills are skipped.
 - ✅ Even with both write flags, unattended auto-apply writes only local agent-created skills. Official/bundled skills (`.bundled_manifest`), hub-installed skills (`.hub/lock.json`), plugin-provided skills, `skills.external_dirs`, pinned skills, and unknown sources are skipped.
 - ✅ `--semantic-candidates` / `--rerank-candidates` are explicit opt-ins and only reorder skills that already passed the evidence threshold.
+- ✅ Optional `--variants N` (default `1`) deterministically generates up to four bounded variants and picks one winner; only the winner is applied, and variant generation never executes model-generated code. See [docs/hyperagents-design-notes.md](docs/hyperagents-design-notes.md).
+- ✅ Optional staged verifier gate: cheap built-in structural check (managed-block + size invariants) runs before any expensive `--verify-command`, so a failing cheap stage skips the expensive stage entirely and still rolls back.
 
 ## Examples and demo
 
@@ -284,6 +288,8 @@ hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk -
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --semantic-candidates --rerank-candidates --apply-low-risk --approve-auto-apply
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply --block-auto-apply-skill 'github-*'
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply --allow-auto-apply-skill store-playbook  # only within local agent-created source boundary
+hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --variants 3 --format json                                                   # generate 3 deterministic variants, pick winner (dry-run)
+hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply --staged-verify                        # cheap built-in check before expensive verify
 hermes-curator-evolver install-auto --schedule daily --enable
 hermes-curator-evolver install-auto --schedule daily --enable --semantic-candidates --rerank-candidates
 hermes-curator-evolver uninstall-auto

@@ -10,5 +10,14 @@
     "command": "python -m pytest -q",
     "exit_code": 0
   },
+  "staged_verify_example": {
+    "staged": true,
+    "passed": true,
+    "exit_code": 0,
+    "stages": [
+      {"name": "builtin-structural", "passed": true, "content_chars": 12345, "reason": "ok"},
+      {"name": "verify-command", "passed": true, "exit_code": 0}
+    ]
+  },
   "rollback_command": "hermes-curator-evolver rollback --manifest /home/user/.hermes/plugins/curator-evolver/backups/20260509T000000Z/manifest.json"
 }

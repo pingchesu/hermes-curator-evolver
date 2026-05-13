@@ -1,9 +1,10 @@
 """Automatic, low-risk skill evolution loop.
 
 This module is intentionally self-contained so the plugin can improve skills
-without patching Hermes core. The safe mutation policy is append-only: generate a
-managed evidence-backed section, preserve the existing skill text, then apply via
-hash/backup/verification guardrails.
+without patching Hermes core. The safe mutation policy is bounded: generate a
+managed evidence-backed section, preserve the existing skill text, spill bulky
+evidence into references/ when needed, then apply via hash/backup/verification
+guardrails.
 """
 
 from __future__ import annotations
@@ -13,7 +14,7 @@ import json
 import os
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,8 @@ _END = "<!-- curator-evolver:auto:end -->"
 _FRONTMATTER_NAME_RE = re.compile(r"^---\s*\n(?P<body>.*?)\n---\s*\n", re.DOTALL)
 _NAME_RE = re.compile(r"^name:\s*[\"']?(?P<name>[^\"'\n]+)[\"']?\s*$", re.MULTILINE)
 _PIN_RE = re.compile(r"^(?:pin|pinned):\s*(?:true|yes|1)\s*$", re.IGNORECASE | re.MULTILINE)
+_MAX_SKILL_CONTENT_CHARS = 100_000
+_SOFT_SKILL_CONTENT_CHARS = 90_000
 
 # Skills in these families steer Hermes itself, coding workflow, skill loading,
 # or repo/PR operations. They may still be analyzed and proposed, but unattended
@@ -53,6 +56,16 @@ _DEFAULT_CORE_AUTO_APPLY_PROTECTED_PATTERNS: tuple[str, ...] = (
     "debugging-hermes-*",
     "requesting-code-review",
 )
+
+
+@dataclass(frozen=True)
+class PreparedSkillUpdate:
+    """A bounded SKILL.md update plus optional support files."""
+
+    content: str
+    size_strategy: str = "inline"
+    support_files: dict[str, str] = field(default_factory=dict)
+    skipped_reason: str | None = None
 
 
 @dataclass(frozen=True)
@@ -186,11 +199,19 @@ def _managed_block(
     days: int,
     summary: dict[str, Any],
     evidence_rows: list[dict[str, Any]],
+    generated_at: str | None = None,
+    evidence_limit: int = 5,
+    detail_reference_path: str | None = None,
 ) -> str:
-    generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
-    evidence_lines = _format_evidence_rows(evidence_rows)
+    generated_at = generated_at or datetime.now(timezone.utc).isoformat(timespec="seconds")
+    evidence_lines = _format_evidence_rows(evidence_rows, limit=evidence_limit)
     if not evidence_lines:
         evidence_lines = ["- No individual evidence rows were available; aggregate counts triggered this pass."]
+    if detail_reference_path:
+        evidence_lines = [
+            f"- Detailed evidence moved to `{detail_reference_path}` to keep this SKILL.md below the write limit.",
+            *evidence_lines[:1],
+        ]
     return "\n".join(
         [
             _START,
@@ -219,6 +240,129 @@ def _managed_block(
     )
 
 
+def _apply_managed_block(skill_text: str, block: str) -> str:
+    if _START in skill_text and _END in skill_text:
+        pattern = re.compile(re.escape(_START) + r".*?" + re.escape(_END) + r"\n?", re.DOTALL)
+        return pattern.sub(block, skill_text, count=1)
+    separator = "\n" if skill_text.endswith("\n") else "\n\n"
+    return skill_text + separator + block
+
+
+def _safe_skill_slug(skill_name: str) -> str:
+    slug = re.sub(r"[^a-z0-9._-]+", "-", skill_name.casefold()).strip(".-_")
+    return slug or "skill"
+
+
+def _evidence_reference_path(*, skill_name: str, generated_at: str) -> str:
+    stamp = generated_at.split("+", 1)[0].replace(":", "").replace("-", "")
+    stamp = stamp.replace("T", "-")[:15]
+    return f"references/curator-evolver-auto-{_safe_skill_slug(skill_name)}-{stamp}.md"
+
+
+def _format_evidence_reference(
+    *,
+    skill_name: str,
+    generated_at: str,
+    days: int,
+    summary: dict[str, Any],
+    evidence_rows: list[dict[str, Any]],
+) -> str:
+    lines = [
+        f"# Curator Evolver evidence for `{skill_name}`",
+        "",
+        f"Generated at: `{generated_at}`",
+        f"Evidence window: last {days} day(s)",
+        "",
+        "## Summary",
+        "",
+        f"- Tool events: {int(summary.get('tool_events') or 0)}",
+        f"- Skill events: {int(summary.get('skill_events') or 0)}",
+        f"- Error-like events: {int(summary.get('error_events') or 0)}",
+        "",
+        "## Evidence rows",
+        "",
+    ]
+    if not evidence_rows:
+        lines.append("- No individual evidence rows were available; aggregate counts triggered this pass.")
+    for row in evidence_rows:
+        created = row.get("created_at") or "unknown-time"
+        tool = row.get("tool_name") or "unknown-tool"
+        marker = "error" if row.get("is_error") else "ok"
+        preview = str(row.get("result_preview") or "").replace("\x00", "").strip()
+        lines.extend([f"### {created} — `{tool}` {marker}", "", "```text", preview, "```", ""])
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def prepare_low_risk_skill_update(
+    *,
+    skill_name: str,
+    skill_text: str,
+    days: int,
+    summary: dict[str, Any],
+    evidence_rows: list[dict[str, Any]],
+    max_content_chars: int = _MAX_SKILL_CONTENT_CHARS,
+    soft_content_chars: int = _SOFT_SKILL_CONTENT_CHARS,
+) -> PreparedSkillUpdate:
+    """Prepare a bounded auto-curation update for a skill.
+
+    The main SKILL.md stays below Hermes' 100k write limit.  If a skill is
+    already large or the inline managed block would push it beyond the soft cap,
+    detailed evidence is spilled into a references/ support file and the main
+    block keeps only a pointer plus compact summary.
+    """
+
+    if len(skill_text) > max_content_chars:
+        return PreparedSkillUpdate(
+            content=skill_text,
+            size_strategy="skip-hard-cap",
+            skipped_reason="skill-content-hard-cap",
+        )
+
+    generated_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    inline_block = _managed_block(
+        skill_name=skill_name,
+        days=days,
+        summary=summary,
+        evidence_rows=evidence_rows,
+        generated_at=generated_at,
+    )
+    inline = _apply_managed_block(skill_text, inline_block)
+    if len(inline) <= soft_content_chars:
+        return PreparedSkillUpdate(content=inline, size_strategy="inline")
+
+    reference_path = _evidence_reference_path(skill_name=skill_name, generated_at=generated_at)
+    compact_block = _managed_block(
+        skill_name=skill_name,
+        days=days,
+        summary=summary,
+        evidence_rows=evidence_rows,
+        generated_at=generated_at,
+        evidence_limit=1,
+        detail_reference_path=reference_path,
+    )
+    compact = _apply_managed_block(skill_text, compact_block)
+    if len(compact) > max_content_chars:
+        return PreparedSkillUpdate(
+            content=skill_text,
+            size_strategy="skip-hard-cap",
+            skipped_reason="skill-content-hard-cap",
+        )
+
+    return PreparedSkillUpdate(
+        content=compact,
+        size_strategy="reference-spillover",
+        support_files={
+            reference_path: _format_evidence_reference(
+                skill_name=skill_name,
+                generated_at=generated_at,
+                days=days,
+                summary=summary,
+                evidence_rows=evidence_rows,
+            )
+        },
+    )
+
+
 def build_low_risk_skill_update(
     *,
     skill_name: str,
@@ -229,17 +373,13 @@ def build_low_risk_skill_update(
 ) -> str:
     """Return an append-only managed update that preserves existing skill text."""
 
-    block = _managed_block(
+    return prepare_low_risk_skill_update(
         skill_name=skill_name,
+        skill_text=skill_text,
         days=days,
         summary=summary,
         evidence_rows=evidence_rows,
-    )
-    if _START in skill_text and _END in skill_text:
-        pattern = re.compile(re.escape(_START) + r".*?" + re.escape(_END) + r"\n?", re.DOTALL)
-        return pattern.sub(block, skill_text, count=1)
-    separator = "\n" if skill_text.endswith("\n") else "\n\n"
-    return skill_text + separator + block
+    ).content
 
 
 def _eligible_skill_rows(report: dict[str, Any], *, min_evidence: int) -> list[dict[str, Any]]:
@@ -406,7 +546,7 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
         candidate: dict[str, Any] = {
             "skill_name": name,
             "risk": "low",
-            "mutation_policy": "append-only-managed-block",
+            "mutation_policy": "bounded-managed-block-with-reference-spillover",
             "selection": selection_metadata.get(name, {"source": "unknown", "reasons": []}),
             "target_path": str(skill_file) if skill_file else None,
             "source": source_info.source if source_info else "missing",
@@ -438,18 +578,33 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
         skill_report = build_report(store, days=days, skill=name)
         skill_summary = skill_report.get("summary") or {}
         evidence_rows = skill_report.get("skill_evidence") or []
-        updated = build_low_risk_skill_update(
+        prepared = prepare_low_risk_skill_update(
             skill_name=name,
             skill_text=original,
             days=days,
             summary=skill_summary,
             evidence_rows=evidence_rows,
         )
+        if prepared.skipped_reason:
+            candidate["status"] = "skipped"
+            candidate["reason"] = prepared.skipped_reason
+            candidate["size_strategy"] = prepared.size_strategy
+            candidates.append(candidate)
+            continue
+        updated = prepared.content
         candidate.update(
             {
                 "status": "planned",
                 "current_sha256": sha256_file(skill_file),
                 "new_content_changed": updated != original,
+                "size_strategy": prepared.size_strategy,
+                "support_files": sorted(prepared.support_files),
+                "content_size": {
+                    "current_chars": len(original),
+                    "updated_chars": len(updated),
+                    "soft_limit_chars": _SOFT_SKILL_CONTENT_CHARS,
+                    "hard_limit_chars": _MAX_SKILL_CONTENT_CHARS,
+                },
                 "evidence_summary": {
                     "tool_events": int(skill_summary.get("tool_events") or 0),
                     "skill_events": int(skill_summary.get("skill_events") or 0),
@@ -475,6 +630,10 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
                 )
                 candidate["apply_result"] = apply_result
                 if apply_result.get("applied"):
+                    for relative_path, content in prepared.support_files.items():
+                        support_path = skill_file.parent / relative_path
+                        support_path.parent.mkdir(parents=True, exist_ok=True)
+                        support_path.write_text(content, encoding="utf-8")
                     applied += 1
                     candidate["status"] = "applied"
         candidates.append(candidate)
@@ -492,7 +651,7 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
             "protected_core_patterns": list(_DEFAULT_CORE_AUTO_APPLY_PROTECTED_PATTERNS),
             "auto_apply_allowlist": list(_normalize_patterns(cfg.auto_apply_allowlist)),
             "auto_apply_blocklist": list(_normalize_patterns(cfg.auto_apply_blocklist)),
-            "mutation_policy": "append-only managed block + guarded apply backup/rollback",
+            "mutation_policy": "bounded managed block + reference spillover + guarded apply backup/rollback",
         },
         "config": {
             "db_path": str(store.db_path),

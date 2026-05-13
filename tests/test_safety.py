@@ -16,4 +16,4 @@ def test_auto_mutation_requires_explicit_low_risk_flags():
     assert "apply_low_risk" in auto_evolve
     assert "approve_auto_apply" in auto_evolve
     assert "auto-approval-required" in auto_evolve
-    assert "append-only-managed-block" in auto_evolve
+    assert "bounded-managed-block-with-reference-spillover" in auto_evolve

@@ -222,7 +222,7 @@ Hard defaults:
 If you want to inspect the behavior before installing, start here:
 
 - [60-second demo script](docs/demo-script.md) — terminal walkthrough for a GIF/asciinema recording.
-- [Example artifacts](examples/) — synthetic report, proposal, managed-block diff, and rollback manifest.
+- [Example artifacts](examples/) — synthetic report, proposal, bounded managed-block diff, and rollback manifest.
 - [Promotion readiness plan](docs/promotion-readiness-plan.md) — what changed to make the repo easier to evaluate publicly.
 - [Architecture notes](docs/architecture.md) — one-page data flow and safety boundary.
 - [Post-install guide](docs/after-install.md) — health checks, timer logs, model details, and uninstall steps.

@@ -1,6 +1,6 @@
 # Hermes Curator Evolver Architecture
 
-`hermes-curator-evolver` is a plug-in evidence and auto-evolution layer around Hermes skills. It does **not** replace the official `hermes curator`; it observes what happened, summarizes why a skill may need improvement, drafts reviewable proposals, and can automatically apply low-risk append-only evidence notes through guardrails without modifying Hermes core.
+`hermes-curator-evolver` is a plug-in evidence and auto-evolution layer around Hermes skills. It does **not** replace the official `hermes curator`; it observes what happened, summarizes why a skill may need improvement, drafts reviewable proposals, and can automatically apply low-risk bounded evidence notes through guardrails without modifying Hermes core.
 
 ## One-page architecture
 
@@ -46,7 +46,7 @@ The safety rule is simple: everything before `Apply` is non-mutating; `Apply` re
 | Candidate search | Finds likely related skills with lexical search by default; semantic models are opt-in only. |
 | Proposal | Produces dry-run review artifacts grounded in evidence. |
 | Bootstrap | One-command setup that backfills recent sessions and installs/enables the daily timer. |
-| Auto-run | Selects active evidence-backed skills with deterministic evidence thresholds by default. With `--semantic-candidates --rerank-candidates`, it can use embedding/rerank to reorder only evidence-eligible skills before preparing low-risk managed append-only notes. Unattended writes are local-agent-created-only by provenance. |
+| Auto-run | Selects active evidence-backed skills with deterministic evidence thresholds by default. With `--semantic-candidates --rerank-candidates`, it can use embedding/rerank to reorder only evidence-eligible skills before preparing low-risk bounded managed notes. Bulky evidence can spill into `references/`; unattended writes are local-agent-created-only by provenance. |
 | Verifier | Blocks ungrounded, mutating, or destructive proposals. |
 | Guarded apply | Writes reviewed content only after approval/hash/backup/verify gates. |
 
@@ -60,10 +60,11 @@ The safety rule is simple: everything before `Apply` is non-mutating; `Apply` re
 | v0.3/v0.5 | `Qwen/Qwen3-Embedding-0.6B` | Embedding skills, session evidence, and user corrections to find candidate skills. | Optional `--execute-semantic`; no default model download. |
 | v0.3/v0.5 | `BAAI/bge-reranker-v2-m3` | Re-ranking candidate skills/evidence after embedding search, especially for Chinese/English mixed workflows. | Optional `--rerank`; no default model download. |
 | v0.4 | Verifier + local validation command | Guarding reviewed content before it is applied. | Requires approval, backup, verification, and rollback path. |
-| v0.6 | None by default | Automatic low-risk append-only skill evolution from evidence. | Optional `auto-run` / `install-auto`; no Hermes core modification. |
+| v0.6 | None by default | Automatic low-risk managed skill evolution from evidence. | Optional `auto-run` / `install-auto`; no Hermes core modification. |
 | v0.7 | `Qwen/Qwen3-Embedding-0.6B` + `BAAI/bge-reranker-v2-m3` | Optional model-assisted autorun candidate ordering. | Explicit `--semantic-candidates --rerank-candidates`; models only reorder evidence-eligible candidates. |
 | v0.9 | None | Provenance-safe auto-apply source classification. | Writes only local agent-created skills; skips bundled/official, hub, plugin, external, pinned, and unknown sources. |
 | v0.10 | None by default | One-command `bootstrap` setup and compressed quick start. | `bootstrap` backfills sessions and installs/enables the timer; `bootstrap --semantic` is explicit model opt-in. |
+| v0.11 | None | Size-bounded auto-apply preparation. | Targets a 90k `SKILL.md` soft cap, spills bulky evidence into `references/`, and skips already-over-100k skills. |
 
 Notes:
 

@@ -15,7 +15,7 @@
   ],
   "proposed_update": {
     "risk": "low",
-    "strategy": "append-only managed note",
+    "strategy": "bounded managed note with reference spillover when needed",
     "text": "When installing plugins into the Hermes runtime, prefer `uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e <plugin-dir>` and verify with `hermes plugins list`."
   },
   "guards": {

@@ -54,7 +54,7 @@ def test_low_risk_update_preserves_existing_skill_and_appends_managed_block(tmp_
     assert updated.startswith(original)
     assert "<!-- curator-evolver:auto:start -->" in updated
     assert "gateway restart failed" in updated
-    assert "Low-risk append-only auto-curation" in updated
+    assert "Low-risk bounded auto-curation" in updated
 
 
 def test_auto_evolve_dry_run_plans_low_risk_updates_without_writing(tmp_path):

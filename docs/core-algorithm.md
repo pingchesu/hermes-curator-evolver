@@ -8,7 +8,7 @@ This document explains the current `hermes-curator-evolver` algorithm in plain t
 | --- | --- | --- | --- | --- |
 | `bootstrap` | No by default; yes with `--semantic` | No by default; yes with `--semantic` | Installs the timer; the timer can write only low-risk local-agent-created skill notes | One-command setup: backfill sessions + install/enable autorun. |
 | `backfill-sessions` | No | No | No | Import existing Hermes `session_*.json` transcripts into evidence.sqlite so prior history can inform reports/autorun. |
-| `auto-run` / `install-auto` default | No | No | Yes, only append-only low-risk blocks for local agent-created skills when explicitly enabled | Safe automatic skill improvement with deterministic evidence thresholds and provenance write protection. |
+| `auto-run` / `install-auto` default | No | No | Yes, only bounded low-risk blocks for local agent-created skills when explicitly enabled | Safe automatic skill improvement with deterministic evidence thresholds, provenance write protection, and size guardrails. |
 | `auto-run --semantic-candidates` | Yes: `Qwen/Qwen3-Embedding-0.6B` | No unless `--rerank-candidates` | Yes, but only after the same write flags and local-agent-created source gate | Model-assisted ordering of evidence-eligible skills. |
 | `auto-run --semantic-candidates --rerank-candidates` | Yes | Yes: `BAAI/bge-reranker-v2-m3` | Yes, but only after the same write flags and local-agent-created source gate | Embedding + reranker ordering of evidence-eligible skills. |
 | `candidates --execute-semantic` | Yes: `Qwen/Qwen3-Embedding-0.6B` | No unless `--rerank` | No | Manual/review candidate discovery. |
@@ -16,7 +16,7 @@ This document explains the current `hermes-curator-evolver` algorithm in plain t
 | `propose --draft-with-model` | Uses Hermes configured chat model | No | No | Draft a reviewable proposal artifact. |
 | `apply` | No | No | Yes, after explicit approval/hash/backup gates | Apply reviewed content. |
 
-Default autorun remains model-free. Embedding/rerank autorun is explicit opt-in and can only reorder candidates that already passed the evidence threshold; model output does not generate write content. Unattended apply is provenance-safe by default: only local agent-created skills are writable. Official/bundled, hub-installed, plugin-provided, `skills.external_dirs`, pinned, and unknown sources may be proposed in dry-run output, but are skipped before write.
+Default autorun remains model-free. Embedding/rerank autorun is explicit opt-in and can only reorder candidates that already passed the evidence threshold; model output does not generate write content. Unattended apply is provenance-safe by default: only local agent-created skills are writable. Official/bundled, hub-installed, plugin-provided, `skills.external_dirs`, pinned, unknown sources, and already-over-hard-cap skills may be proposed in dry-run output, but are skipped before write.
 
 Semantic execution is runtime-guarded for local machines: texts are truncated for candidate ranking (`HERMES_CURATOR_EVOLVER_SEMANTIC_TEXT_LIMIT`, default `512` chars), embedding batches run one at a time, and model runtime device is configurable with `HERMES_CURATOR_EVOLVER_SEMANTIC_DEVICE` (default `auto`; set `cpu` or `cuda` explicitly if needed). If local model execution fails, `auto-run` falls back to deterministic evidence ordering instead of crashing.
 
@@ -51,6 +51,7 @@ Backfill is intentionally model-free. It does not infer missing tool calls from 
 - Optional bootstrap wrapper: `bootstrap`, `bootstrap --semantic`
 - Candidate cap: default `--max-skills 3`
 - Minimum evidence threshold: default `--min-evidence 2`
+- Size guardrails: target a 90k `SKILL.md` soft cap; skip unattended updates when the target `SKILL.md` already exceeds the 100k hard cap
 - Optional candidate ordering: `--semantic-candidates`, `--rerank-candidates`
 - Auto-apply policy: provenance gate writes only local agent-created skills; `--protect-core-skills` default on adds an extra name-based guard; `--allow-auto-apply-skill <glob>` and `--block-auto-apply-skill <glob>` operate inside that provenance boundary
 
@@ -77,8 +78,10 @@ Backfill is intentionally model-free. It does not infer missing tool calls from 
    d. In approved auto-apply mode, skip any source other than `local-agent-created`: bundled/official, hub-installed, plugin-provided, `skills.external_dirs`, and unknown sources.
    e. Apply the extra core/workflow name guard and explicit blocklist/allowlist patterns inside that provenance boundary.
    f. Build a per-skill evidence report.
-   g. Generate/update a managed curator-evolver:auto block.
-   h. Preserve all existing skill text outside that block.
+   g. Prepare a bounded managed curator-evolver:auto block.
+   h. If the updated SKILL.md would exceed the 90k soft cap, reduce inline evidence and spill bulky details into references/.
+   i. If the existing SKILL.md already exceeds the 100k hard cap, skip unattended update with reason skill-content-hard-cap.
+   j. Preserve all existing skill text outside that block.
 8. If --apply-low-risk is not set:
    return dry-run plan only.
 9. If --apply-low-risk is set but --approve-auto-apply is missing:
@@ -123,21 +126,25 @@ for name in names[:max_skills]:
         skip("core-skill-auto-apply-protected")
 
     skill_report = build_report(store, days=days, skill=name)
-    updated = build_low_risk_skill_update(
+    prepared = prepare_low_risk_skill_update(
         skill_name=name,
         skill_text=original,
+        days=days,
         summary=skill_report.summary,
         evidence_rows=skill_report.skill_evidence,
     )
+    if prepared.skipped_reason:
+        skip(prepared.skipped_reason)
 
     if apply_low_risk and approve_auto_apply:
         apply_guarded_patch(
             target_path=skill_file,
-            new_content=updated,
+            new_content=prepared.content,
             expected_sha256=sha256_file(skill_file),
             backup_root=backup_dir,
             verify_command=verify_command,
         )
+        write_support_files(prepared.support_files)
 ```
 
 ## What gets written
@@ -148,7 +155,7 @@ Autorun only writes a managed block like this:
 <!-- curator-evolver:auto:start -->
 ## Auto-curated evidence notes
 
-Low-risk append-only auto-curation generated by `hermes-curator-evolver`.
+Low-risk bounded auto-curation generated by `hermes-curator-evolver`.
 These notes are evidence summaries for future agents; they do not replace human-authored SOPs.
 
 - Skill: `example-skill`
@@ -168,7 +175,7 @@ These notes are evidence summaries for future agents; they do not replace human-
 <!-- curator-evolver:auto:end -->
 ```
 
-If the block already exists, autorun replaces only that managed block. It does not rewrite the rest of the skill.
+If the block already exists, autorun replaces only that managed block. It does not rewrite the rest of the skill. When the block would make `SKILL.md` too large, autorun keeps a compact pointer in the block and writes bulky evidence to a `references/curator-evolver-auto-*.md` support file. If the starting `SKILL.md` is already above the 100k hard cap, unattended update is skipped instead of making the file larger.
 
 ## Embedding/rerank autorun choice
 
@@ -288,10 +295,10 @@ Think of the current system as two lanes that now meet at the candidate-ordering
 
 ```text
 Lane A — safe automation default
-Evidence counts → deterministic candidate ordering → append-only notes → guarded apply
+Evidence counts → deterministic candidate ordering → bounded managed notes + optional reference spillover → guarded apply
 
 Lane B — model-assisted ordering opt-in
-Evidence-eligible candidates → embedding/rerank ordering → append-only notes → guarded apply
+Evidence-eligible candidates → embedding/rerank ordering → bounded managed notes + optional reference spillover → guarded apply
 ```
 
 Models can improve which eligible skill is considered first, but they cannot bypass evidence thresholds or guarded apply.

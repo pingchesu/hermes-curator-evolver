@@ -36,7 +36,8 @@ What it does:
 - backfills existing `session_*.json` history
 - ranks candidate skills for improvement
 - generates dry-run proposals and evidence reports
-- applies only guarded, append-only updates in the low-risk path
+- applies only guarded, bounded updates in the low-risk path
+- spills bulky evidence into `references/` instead of growing `SKILL.md` past the tool cap
 - skips official, hub-installed, plugin-provided, external, pinned, and unknown-source skills
 - creates backups and rollback manifests
 - supports optional semantic search/rerank, but only when explicitly enabled
@@ -48,7 +49,7 @@ The default path is local-first and model-free. Semantic search is explicit opt-
 I’d love feedback from Hermes users on:
 
 1. Is the safety model strict enough?
-2. Should proposals be more PR-like diffs instead of append-only notes?
+2. Should proposals be more PR-like diffs instead of bounded managed notes?
 3. What evidence signals should count?
 4. What would make you trust automated skill maintenance?
 
@@ -78,7 +79,8 @@ So I built a local-first plugin for Hermes Agent that treats skill updates more 
 - collect session/tool-call evidence locally
 - rank which skills might need improvement
 - generate reviewable proposals
-- apply only low-risk append-only notes by default
+- apply only low-risk bounded notes by default
+- spill bulky evidence into `references/` and skip already-over-hard-cap skills
 - skip official, external, plugin-provided, pinned, or unknown-source skills
 - create backups and rollback manifests
 - keep semantic search/reranking explicit opt-in
@@ -91,7 +93,7 @@ I’m curious how others think about this problem:
 
 - Should agent skills be allowed to evolve automatically at all?
 - What evidence should count as a valid signal?
-- Is append-only safer than direct rewrite?
+- Is a bounded managed block safer than direct rewrite?
 - What rollback or audit trail would make this trustworthy?
 ```
 

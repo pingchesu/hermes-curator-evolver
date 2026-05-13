@@ -59,6 +59,6 @@ hermes-curator-evolver apply \
 
 - "The plugin learns from local Hermes session/tool-call evidence."
 - "Proposal and report commands are read-only."
-- "Unattended auto-run can only write managed append-only blocks, and only after explicit write flags."
+- "Unattended auto-run can only write bounded managed blocks, spills bulky evidence to references, and only runs after explicit write flags."
 - "Official, hub-installed, plugin-provided, external, pinned, and unknown-source skills are skipped."
 - "Every guarded apply records a backup manifest so rollback is concrete, not hand-wavy."

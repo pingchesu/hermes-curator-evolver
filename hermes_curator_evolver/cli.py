@@ -126,7 +126,7 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Opt into reranker-backed candidate ordering; implies --semantic-candidates",
     )
-    auto_run.add_argument("--apply-low-risk", action="store_true", help="Apply low-risk append-only updates")
+    auto_run.add_argument("--apply-low-risk", action="store_true", help="Apply low-risk bounded managed updates")
     auto_run.add_argument(
         "--approve-auto-apply",
         action="store_true",

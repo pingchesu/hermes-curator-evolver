@@ -34,7 +34,8 @@ Hermes sessions / tool calls / skill usage / optional historical backfill
   → evidence-eligible candidate set
   → optional semantic/rerank ordering if explicitly selected
   → local-agent-created provenance policy gate
-  → append-only managed SKILL.md evidence note
+  → bounded managed SKILL.md evidence note
+  → optional references/ spillover for bulky evidence
   → backup + rollback manifest
   → post-apply SKILL.md validation
 ```
@@ -65,7 +66,7 @@ hermes-curator-evolver auto-run \
   --protect-core-skills
 ```
 
-Autorun does **not** rewrite whole skills, delete existing content, change Hermes Agent core, mutate pinned skills, or auto-apply to official/bundled, hub-installed, plugin-provided, `external_dirs`, or unknown-source skills. The installed timer also runs the built-in `skill_validate` check after each successful write; if validation fails, guarded apply rolls the skill back and records the failed verification in the manifest. `--allow-auto-apply-skill` can relax the extra core-name guard only inside the local agent-created boundary; it does not override provenance. If semantic/rerank model execution fails locally, autorun records the error and falls back to deterministic evidence ordering instead of crashing.
+Autorun does **not** rewrite whole skills, delete existing content, change Hermes Agent core, mutate pinned skills, or auto-apply to official/bundled, hub-installed, plugin-provided, `external_dirs`, unknown-source, or already-over-hard-cap skills. The installed timer also runs the built-in `skill_validate` check after each successful write; if validation fails, guarded apply rolls the skill back and records the failed verification in the manifest. `--allow-auto-apply-skill` can relax the extra core-name guard only inside the local agent-created boundary; it does not override provenance. If semantic/rerank model execution fails locally, autorun records the error and falls back to deterministic evidence ordering instead of crashing.
 
 ## Historical session backfill
 
@@ -160,7 +161,8 @@ hermes-curator-evolver install-auto --schedule daily --enable --semantic-candida
 Important model boundaries:
 
 - Models help find or draft candidate improvements; they do not get unilateral write access.
-- `auto-run` low-risk writes are deterministic, append-only, and local-agent-created-only by default.
+- `auto-run` low-risk writes are deterministic, bounded, and local-agent-created-only by default.
+- Bulky autorun evidence spills into `references/` to keep `SKILL.md` under the 100k tool cap; already-over-hard-cap skills are skipped.
 - In semantic/rerank autorun, model scores only reorder candidates that already passed the evidence threshold.
 - Semantic models are never downloaded unless the user explicitly asks for semantic execution.
 - Semantic ranking truncates SKILL.md text to `HERMES_CURATOR_EVOLVER_SEMANTIC_TEXT_LIMIT` characters, default `512`, and uses `batch_size=1` to avoid local GPU/CPU memory spikes.

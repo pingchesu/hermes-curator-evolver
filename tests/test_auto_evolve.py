@@ -54,7 +54,7 @@ def test_low_risk_update_preserves_existing_skill_and_appends_managed_block(tmp_
     assert updated.startswith(original)
     assert "<!-- curator-evolver:auto:start -->" in updated
     assert "gateway restart failed" in updated
-    assert "Low-risk append-only auto-curation" in updated
+    assert "Low-risk bounded auto-curation" in updated
 
 
 def test_auto_evolve_dry_run_plans_low_risk_updates_without_writing(tmp_path):
@@ -126,6 +126,78 @@ def test_auto_evolve_apply_low_risk_updates_skill_with_backup(tmp_path):
     assert result["candidates"][0]["apply_result"]["applied"] is True
     assert "Auto-curated evidence notes" in updated
     assert Path(result["candidates"][0]["apply_result"]["manifest_path"]).exists()
+
+
+def test_auto_evolve_spills_near_limit_evidence_to_reference_file(tmp_path):
+    db = tmp_path / "evidence.sqlite"
+    store = EvidenceStore(db, preview_chars=6_000)
+    skills = tmp_path / "skills"
+    backups = tmp_path / "backups"
+    base_body = "A" * 98_600
+    skill_file = _write_skill(skills, "store-playbook", base_body)
+    long_preview = "overflow evidence " + "B" * 4_000
+    store.record_tool_call(
+        tool_name="terminal",
+        args={"skills": ["store-playbook"]},
+        result={"exit_code": 1, "output": long_preview},
+        session_id="s1",
+    )
+
+    result = run_auto_evolve(
+        AutoEvolveConfig(
+            db_path=db,
+            skills_dir=skills,
+            backup_dir=backups,
+            days=30,
+            min_evidence=1,
+            apply_low_risk=True,
+            approve_auto_apply=True,
+        )
+    )
+
+    candidate = result["candidates"][0]
+    updated = skill_file.read_text(encoding="utf-8")
+    references = sorted((skill_file.parent / "references").glob("curator-evolver-auto-*.md"))
+    assert result["summary"]["applied"] == 1
+    assert candidate["size_strategy"] == "reference-spillover"
+    assert len(updated) <= 100_000
+    assert "Detailed evidence moved to" in updated
+    assert long_preview not in updated
+    assert references, "expected detailed evidence spillover reference file"
+    assert long_preview in references[0].read_text(encoding="utf-8")
+
+
+def test_auto_evolve_skips_apply_when_skill_already_exceeds_hard_cap(tmp_path):
+    db = tmp_path / "evidence.sqlite"
+    store = EvidenceStore(db)
+    skills = tmp_path / "skills"
+    backups = tmp_path / "backups"
+    skill_file = _write_skill(skills, "store-playbook", "A" * 100_200)
+    original_hash = sha256_file(skill_file)
+    store.record_tool_call(
+        tool_name="skill_view",
+        args={"name": "store-playbook"},
+        result={"success": True},
+        session_id="s1",
+    )
+
+    result = run_auto_evolve(
+        AutoEvolveConfig(
+            db_path=db,
+            skills_dir=skills,
+            backup_dir=backups,
+            days=30,
+            min_evidence=1,
+            apply_low_risk=True,
+            approve_auto_apply=True,
+        )
+    )
+
+    candidate = result["candidates"][0]
+    assert result["summary"]["applied"] == 0
+    assert candidate["status"] == "skipped"
+    assert candidate["reason"] == "skill-content-hard-cap"
+    assert sha256_file(skill_file) == original_hash
 
 
 def test_auto_evolve_refuses_apply_without_auto_approval(tmp_path):

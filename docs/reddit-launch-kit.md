@@ -6,12 +6,12 @@ This is a practical launch kit for sharing Hermes Curator Evolver without overse
 
 **One-line description**
 
-> Hermes Curator Evolver is a local-first Hermes Agent plugin that turns real session history into evidence-backed skill maintenance, with dry-run proposals, backups, rollback, and provenance-safe append-only autorun.
+> Hermes Curator Evolver is a local-first Hermes Agent plugin that turns real session history into evidence-backed skill maintenance, with dry-run proposals, backups, rollback, and provenance-safe bounded autorun.
 
 **What makes it different**
 
 - It is built around real agent usage evidence: skill loads, tool calls, session endings, and optional historical `session_*.json` backfill.
-- It is conservative by default: reports/proposals are dry-run, model execution is opt-in, and unattended writes are limited to managed append-only blocks.
+- It is conservative by default: reports/proposals are dry-run, model execution is opt-in, and unattended writes are limited to bounded managed blocks with reference spillover for bulky evidence.
 - It protects shared or upstream-owned skills: bundled, hub-installed, plugin-provided, external-dir, pinned, and unknown-source skills are skipped for unattended writes.
 - It treats embeddings/rerankers as ranking aids, not as edit authority. Default autorun remains deterministic and model-free.
 
@@ -59,7 +59,7 @@ What the plugin does:
 - produces reports and dry-run proposals before edits;
 - optionally uses Qwen embeddings + bge reranking for mixed-language candidate ordering;
 - supports guarded apply with SHA checks, backups, validation, and rollback;
-- can run daily low-risk autorun, but only writes managed append-only notes to local agent-created skills.
+- can run daily low-risk autorun, but only writes bounded managed notes to local agent-created skills; bulky evidence spills into `references/`.
 
 The safety boundary is the part I care most about: official/bundled, hub-installed, plugin-provided, `skills.external_dirs`, pinned, and unknown-source skills are skipped for unattended writes. Semantic mode is explicit opt-in and only reorders evidence-eligible candidates.
 
@@ -90,7 +90,7 @@ The design is intentionally conservative:
 - model use is optional, not required;
 - embeddings/rerankers can help order candidate skills, but do not decide edits;
 - apply requires approval/hash/backup/rollback gates;
-- daily autorun is limited to append-only managed notes on local agent-created skills.
+- daily autorun is limited to bounded managed notes on local agent-created skills, with `references/` spillover for bulky evidence.
 
 This is not an attempt to make an agent freely rewrite its own system prompt. It is closer to a maintenance loop: session evidence in, reviewable skill updates out.
 
@@ -104,7 +104,7 @@ Repo: https://github.com/pingchesu/hermes-curator-evolver
 
 The current implementation is pragmatic rather than benchmark-driven. It collects local session/tool/skill evidence, can backfill historical Hermes transcripts, ranks candidate skills lexically by default, and optionally uses `Qwen/Qwen3-Embedding-0.6B` plus `BAAI/bge-reranker-v2-m3` for candidate ordering.
 
-Important boundary: model output does not directly mutate skills. The default path is model-free; semantic/rerank is explicit opt-in and only reorders already evidence-eligible skills. Writes go through dry-run proposals, verifier gates, expected-SHA checks, backups, validation commands, and rollback. Unattended autorun is restricted to managed append-only notes on local agent-created skills.
+Important boundary: model output does not directly mutate skills. The default path is model-free; semantic/rerank is explicit opt-in and only reorders already evidence-eligible skills. Writes go through dry-run proposals, verifier gates, expected-SHA checks, backups, validation commands, and rollback. Unattended autorun is restricted to bounded managed notes on local agent-created skills, spills bulky evidence into `references/`, and skips already-over-hard-cap skills.
 
 I would especially appreciate feedback on:
 
@@ -118,7 +118,7 @@ Use these when someone asks for detail.
 
 ### Why not just let an LLM rewrite the skill?
 
-Because the failure mode is too broad. This plugin separates evidence collection, candidate ranking, proposal drafting, verification, and apply. The default unattended path can only update a managed append-only block, and only for local agent-created skills.
+Because the failure mode is too broad. This plugin separates evidence collection, candidate ranking, proposal drafting, verification, and apply. The default unattended path can only update a bounded managed block, and only for local agent-created skills; bulky evidence is moved to `references/` instead of expanding `SKILL.md` indefinitely.
 
 ### What is stored?
 

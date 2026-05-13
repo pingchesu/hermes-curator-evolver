@@ -24,7 +24,7 @@
 
 | 📚 Session evidence | 📥 Backfill today | 🧠 Optional semantic search | 🛡️ Guarded automation |
 |:-:|:-:|:-:|:-:|
-| Learn from real Hermes work | Import old `session_*.json` history | Embedding + rerank only when selected | Append-only notes, backups, rollback |
+| Learn from real Hermes work | Import old `session_*.json` history | Embedding + rerank only when selected | Bounded notes, reference spillover, rollback |
 
 </div>
 
@@ -57,7 +57,7 @@ Use it when you want:
 - local evidence reports before any skill update,
 - dry-run proposals that can be reviewed like maintenance notes,
 - explicit write approval, exact target-hash checks, backups, and rollback,
-- safe unattended maintenance limited to managed append-only blocks,
+- safe unattended maintenance limited to bounded managed blocks,
 - optional semantic search/rerank only when you choose to enable it.
 
 It is **not** a general AutoML system, a skill marketplace, or an agent that freely rewrites every prompt it can see. The default path is local, model-free, reversible, and intentionally boring.
@@ -72,7 +72,7 @@ uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e ~/.hermes/plug
 hermes-curator-evolver bootstrap
 ```
 
-That is the default, model-free path. It writes only low-risk append-only notes to **local agent-created** skills, then validates the changed `SKILL.md` before the apply is considered successful. Official/bundled, hub-installed, plugin-provided, `skills.external_dirs`, pinned, and unknown-source skills are skipped.
+That is the default, model-free path. It writes only low-risk bounded notes to **local agent-created** skills, spills bulky evidence into `references/` when needed, then validates the changed `SKILL.md` before the apply is considered successful. Official/bundled, hub-installed, plugin-provided, `skills.external_dirs`, pinned, unknown-source, and already-over-hard-cap skills are skipped.
 
 Want multilingual semantic/rerank ordering? Make the opt-in explicit:
 
@@ -94,13 +94,14 @@ If Hermes gateway was already running, restart it once so plugin hooks are loade
 
 | 1. Collect | 2. Rank | 3. Improve | 4. Protect |
 |:-:|:-:|:-:|:-:|
-| Tool calls + skill loads + old sessions | Evidence counts; optional Qwen + bge rerank | Daily append-only notes + post-apply validation | Only local agent-created skills are writable |
+| Tool calls + skill loads + old sessions | Evidence counts; optional Qwen + bge rerank | Daily bounded notes + reference spillover + post-apply validation | Only local agent-created skills are writable |
 
 ```mermaid
 flowchart LR
     S[Hermes sessions + tool calls] --> DB[(SQLite evidence)]
     DB --> T[daily bootstrap timer]
-    T --> A[append notes to local agent-created skills]
+    T --> A[bounded notes to local agent-created skills]
+    A -. bulky evidence .-> REF[references/ spillover]
     T -. skip .-> P[official / hub / external / pinned skills]
     A --> B[backup + rollback manifest]
 ```
@@ -108,7 +109,7 @@ flowchart LR
 | User concern | Short answer |
 | --- | --- |
 | **Will it run by itself?** | Yes. `bootstrap` enables a daily user-level timer. |
-| **Will it rewrite my skills?** | No. Autorun only updates a managed append-only block. |
+| **Will it rewrite my skills?** | No. Autorun only updates a managed bounded block and spills bulky evidence to `references/`. |
 | **Will it touch official/team skills?** | No. Provenance gate skips bundled, hub, plugin, and `external_dirs` skills. |
 | **Can I inspect first?** | Yes. `auto-run --format json` is dry-run by default. |
 
@@ -118,7 +119,8 @@ The default experience is designed to be inspectable before it is writable:
 
 - **Read-only first:** `status`, `report`, `analyze`, `candidates`, `propose`, `verify`, and default `auto-run` do not mutate skills.
 - **No blind model dependency:** the default bootstrap path is model-free; model-assisted proposal drafting and semantic/rerank ordering require explicit opt-in flags.
-- **Narrow unattended writes:** low-risk autorun writes only a managed append-only notes block, and only after both `--apply-low-risk` and `--approve-auto-apply`.
+- **Narrow unattended writes:** low-risk autorun writes only a managed bounded notes block, and only after both `--apply-low-risk` and `--approve-auto-apply`.
+- **Size guardrails:** `SKILL.md` updates target a 90k soft cap, spill bulky evidence into `references/`, and skip unattended writes when the target skill is already over the 100k hard cap.
 - **Source provenance gate:** official/bundled, hub-installed, plugin-provided, `skills.external_dirs`, pinned, and unknown-source skills are skipped from unattended writes.
 - **Rollback is concrete:** guarded apply records backups and manifests so you can restore exact prior content.
 
@@ -139,13 +141,13 @@ Hermes skills are operational memory. They capture how an agent should debug, de
 | Learn from sessions. | Runtime hooks + historical backfill feed local SQLite evidence. |
 | Retrieve similar skills before editing. | Lexical search by default; optional Qwen embeddings + bge reranking. |
 | Verify skill changes. | Dry-run proposals, verifier gates, exact SHA match, backups, rollback. |
-| Avoid uncontrolled mutation. | No Hermes core patches, pinned skills are skipped, official/hub/external/plugin skills are protected from unattended writes, autorun is append-only. |
+| Avoid uncontrolled mutation. | No Hermes core patches, pinned skills are skipped, official/hub/external/plugin skills are protected from unattended writes, autorun is bounded and can spill bulky evidence into `references/`. |
 
 ## Launch / discussion kit
 
 If you are evaluating or sharing the project, start with the smallest concrete claim:
 
-> A local-first Hermes Agent plugin that turns session history into evidence-backed skill maintenance, with dry-run proposals and provenance-safe append-only autorun.
+> A local-first Hermes Agent plugin that turns session history into evidence-backed skill maintenance, with dry-run proposals and provenance-safe bounded autorun.
 
 Useful links for reviewers and community posts:
 
@@ -168,7 +170,7 @@ flowchart LR
     Proposal --> Verify[verifier gate]
     Verify --> Human[human approval]
     Human --> Apply[guarded apply + rollback]
-    DB --> Auto[auto-run low-risk append]
+    DB --> Auto[auto-run low-risk bounded update]
     Auto --> Apply
 ```
 
@@ -182,10 +184,11 @@ flowchart LR
 | v0.3/v0.5 | `Qwen/Qwen3-Embedding-0.6B` | Candidate skill/evidence/user-correction search. | Optional `--execute-semantic`; no default download. |
 | v0.3/v0.5 | `BAAI/bge-reranker-v2-m3` | Re-rank candidates, especially for mixed Chinese/English agent workflows. | Optional `--rerank`; no default download. |
 | v0.4 | Verifier + local validation command | Guard final reviewed content before apply. | Requires approval, backup, verification, rollback. |
-| v0.6 | None by default | Automatic low-risk append-only skill updates from observed evidence. | Optional `install-auto`; no Hermes core modification. |
+| v0.6 | None by default | Automatic low-risk managed skill updates from observed evidence. | Optional `install-auto`; no Hermes core modification. |
 | v0.7 | `Qwen/Qwen3-Embedding-0.6B` + `BAAI/bge-reranker-v2-m3` | Optional model-assisted autorun candidate ordering. | Explicit `--semantic-candidates --rerank-candidates`; models only reorder evidence-eligible candidates. |
 | v0.9 | None | Provenance-safe unattended auto-apply. | Writes only local agent-created skills; skips bundled, hub, plugin, external, pinned, and unknown sources. |
 | v0.10 | None by default | One-command setup and clearer public README. | `bootstrap` backfills sessions and installs/enables autorun; `bootstrap --semantic` is explicit model opt-in. |
+| v0.11 | None | Size-bounded unattended auto-apply. | Keeps `SKILL.md` under the 100k tool cap by targeting a 90k soft cap, spilling bulky evidence into `references/`, and skipping already-over-hard-cap skills. |
 
 ## Safety model
 
@@ -209,7 +212,8 @@ Hard defaults:
 - ✅ Apply refuses if the target SHA256 changed.
 - ✅ Apply creates a backup before writing.
 - ✅ Failed validation auto-restores the backup.
-- ✅ `auto-run` writes only managed append-only blocks and still requires both `--apply-low-risk` and `--approve-auto-apply` before mutation.
+- ✅ `auto-run` writes only managed bounded blocks and still requires both `--apply-low-risk` and `--approve-auto-apply` before mutation.
+- ✅ Bulky autorun evidence spills into `references/` instead of growing `SKILL.md` past the tool cap; already-over-hard-cap skills are skipped.
 - ✅ Even with both write flags, unattended auto-apply writes only local agent-created skills. Official/bundled skills (`.bundled_manifest`), hub-installed skills (`.hub/lock.json`), plugin-provided skills, `skills.external_dirs`, pinned skills, and unknown sources are skipped.
 - ✅ `--semantic-candidates` / `--rerank-candidates` are explicit opt-ins and only reorder skills that already passed the evidence threshold.
 
@@ -218,7 +222,7 @@ Hard defaults:
 If you want to inspect the behavior before installing, start here:
 
 - [60-second demo script](docs/demo-script.md) — terminal walkthrough for a GIF/asciinema recording.
-- [Example artifacts](examples/) — synthetic report, proposal, append-only diff, and rollback manifest.
+- [Example artifacts](examples/) — synthetic report, proposal, bounded managed-block diff, and rollback manifest.
 - [Promotion readiness plan](docs/promotion-readiness-plan.md) — what changed to make the repo easier to evaluate publicly.
 - [Architecture notes](docs/architecture.md) — one-page data flow and safety boundary.
 - [Post-install guide](docs/after-install.md) — health checks, timer logs, model details, and uninstall steps.
@@ -228,7 +232,7 @@ If you want to inspect the behavior before installing, start here:
 This project is intentionally conservative, and feedback is most useful around the trust model:
 
 1. Is the provenance gate strict enough for unattended skill maintenance?
-2. Should proposals become PR-like diffs instead of append-only notes?
+2. Should proposals become PR-like diffs instead of bounded managed notes?
 3. Which evidence signals should count: tool sequences, repeated fixes, user corrections, failed commands, or something else?
 4. What rollback UX would make automated skill maintenance trustworthy?
 5. What evaluation would show that a skill update actually improves future agent behavior?
@@ -370,11 +374,12 @@ export HERMES_CURATOR_EVOLVER_DB=/custom/path.sqlite
 - ✅ **v0.3** — candidate generation interface with optional embedding/reranker model plan.
 - ✅ **v0.4** — guarded apply with explicit approval, backup, verification, and rollback.
 - ✅ **v0.5** — explicit model execution paths: Hermes chat-model drafts, Qwen embedding candidate ranking, and bge reranking.
-- ✅ **v0.6** — plug-and-play `auto-run` + optional systemd timer for low-risk append-only skill improvements without Hermes core changes.
+- ✅ **v0.6** — plug-and-play `auto-run` + optional systemd timer for low-risk managed skill improvements without Hermes core changes.
 - ✅ **v0.7** — explicit `--semantic-candidates` / `--rerank-candidates` for model-assisted autorun candidate ordering.
 - ✅ **v0.8** — `backfill-sessions` for existing Hermes history, `CONTRIBUTING.md`, and GitHub Actions CI.
 - ✅ **v0.9** — provenance-safe autorun: only local agent-created skills can be auto-applied; bundled, hub, plugin, external, pinned, and unknown sources are skipped.
 - ✅ **v0.10** — `bootstrap` one-command setup plus a shorter, visual quick start.
+- ✅ **v0.11** — size-bounded autorun: target a 90k `SKILL.md` soft cap, spill bulky evidence into `references/`, and skip already-over-hard-cap skills.
 
 ---
 

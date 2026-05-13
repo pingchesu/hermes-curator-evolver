@@ -4,7 +4,7 @@ These files are synthetic examples for readers who want to inspect Hermes Curato
 
 - [`sample-report.json`](sample-report.json) — aggregate evidence report shape.
 - [`sample-proposal.json`](sample-proposal.json) — dry-run proposal shape.
-- [`sample-skill-append.diff`](sample-skill-append.diff) — illustrative append-only managed-block update style; not intended to be applied with `git apply`.
+- [`sample-skill-managed-block.diff`](sample-skill-managed-block.diff) — illustrative bounded managed-block update style; not intended to be applied with `git apply`.
 - [`sample-rollback-manifest.json`](sample-rollback-manifest.json) — backup manifest shape used for rollback.
 
 The examples are intentionally small and do not contain real user session data.

@@ -65,6 +65,7 @@ The safety rule is simple: everything before `Apply` is non-mutating; `Apply` re
 | v0.9 | None | Provenance-safe auto-apply source classification. | Writes only local agent-created skills; skips bundled/official, hub, plugin, external, pinned, and unknown sources. |
 | v0.10 | None by default | One-command `bootstrap` setup and compressed quick start. | `bootstrap` backfills sessions and installs/enables the timer; `bootstrap --semantic` is explicit model opt-in. |
 | v0.11 | None | Size-bounded auto-apply preparation. | Targets a 90k `SKILL.md` soft cap, spills bulky evidence into `references/`, and skips already-over-100k skills. |
+| v0.12 | None by default | Clean-room multi-variant candidate selection and staged verification inspired by HyperAgents concepts. | `--variants N` is deterministic/model-free; `--staged-verify` runs local structural checks before optional user-supplied verify commands. No HyperAgents dependency or model-generated code execution. |
 
 Notes:
 

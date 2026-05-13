@@ -5,8 +5,10 @@ from hermes_curator_evolver.auto_evolve import (
     AutoEvolveConfig,
     build_low_risk_skill_update,
     discover_skill_files,
+    generate_variants,
     install_auto_timer,
     run_auto_evolve,
+    select_winning_variant,
 )
 from hermes_curator_evolver.guarded_apply import sha256_file
 from hermes_curator_evolver.storage import EvidenceStore
@@ -642,3 +644,242 @@ def test_auto_evolve_json_serializable(tmp_path):
     result = run_auto_evolve(AutoEvolveConfig(db_path=db, skills_dir=skills))
 
     json.dumps(result, ensure_ascii=False, sort_keys=True)
+
+
+def test_generate_variants_returns_distinct_deterministic_candidates(tmp_path):
+    skill_text = _write_skill(tmp_path, "hermes-agent").read_text(encoding="utf-8")
+    evidence = [
+        {
+            "created_at": f"2026-05-{day:02d}T10:00:00+00:00",
+            "tool_name": "terminal",
+            "is_error": bool(day % 2),
+            "result_preview": f"sample {day}",
+        }
+        for day in range(1, 9)
+    ]
+
+    first = generate_variants(
+        skill_name="hermes-agent",
+        skill_text=skill_text,
+        days=7,
+        summary={"tool_events": 8, "skill_events": 4, "error_events": 4},
+        evidence_rows=evidence,
+        count=3,
+        generated_at="2026-05-14T12:00:00+00:00",
+    )
+    second = generate_variants(
+        skill_name="hermes-agent",
+        skill_text=skill_text,
+        days=7,
+        summary={"tool_events": 8, "skill_events": 4, "error_events": 4},
+        evidence_rows=evidence,
+        count=3,
+        generated_at="2026-05-14T12:00:00+00:00",
+    )
+
+    assert len(first) == 3
+    assert [v["name"] for v in first] == [
+        "default-verify-first",
+        "compact-evidence-first",
+        "wide-errors-first",
+    ]
+    assert [v["prepared"].content for v in first] == [v["prepared"].content for v in second]
+    # Different evidence_limit values yield different inline content.
+    inline_lengths = {v["prepared"].content for v in first}
+    assert len(inline_lengths) > 1
+
+
+def test_select_winning_variant_prefers_inline_over_spillover():
+    variants = [
+        {"index": 0, "name": "a", "score": 100, "score_breakdown": [], "size_strategy": "inline", "skipped_reason": None, "content_chars": 1000, "support_files": [], "spec": {}, "prepared": object()},
+        {"index": 1, "name": "b", "score": 50, "score_breakdown": [], "size_strategy": "reference-spillover", "skipped_reason": None, "content_chars": 800, "support_files": ["x"], "spec": {}, "prepared": object()},
+    ]
+
+    winner = select_winning_variant(variants)
+
+    assert winner["index"] == 0
+
+
+def test_auto_evolve_default_variants_one_preserves_single_variant_behavior(tmp_path):
+    db = tmp_path / "evidence.sqlite"
+    store = EvidenceStore(db)
+    skills = tmp_path / "skills"
+    _write_skill(skills, "hermes-agent")
+    store.record_tool_call(
+        tool_name="terminal",
+        args={"skills": ["hermes-agent"]},
+        result={"exit_code": 1, "output": "gateway restart failed"},
+        session_id="s1",
+    )
+
+    result = run_auto_evolve(
+        AutoEvolveConfig(
+            db_path=db,
+            skills_dir=skills,
+            days=30,
+            min_evidence=1,
+        )
+    )
+
+    candidate = result["candidates"][0]
+    assert result["config"]["variants"] == 1
+    assert candidate["variants_requested"] == 1
+    assert len(candidate["variants"]) == 1
+    assert candidate["variants"][0]["selected"] is True
+    assert candidate["selected_variant"]["name"] == "default-verify-first"
+
+
+def test_auto_evolve_variants_dry_run_exposes_summaries_and_winner(tmp_path):
+    db = tmp_path / "evidence.sqlite"
+    store = EvidenceStore(db)
+    skills = tmp_path / "skills"
+    _write_skill(skills, "hermes-agent")
+    for index in range(6):
+        store.record_tool_call(
+            tool_name="terminal",
+            args={"skills": ["hermes-agent"]},
+            result={"exit_code": index % 2, "output": f"sample-{index}"},
+            session_id=f"s{index}",
+        )
+
+    result = run_auto_evolve(
+        AutoEvolveConfig(
+            db_path=db,
+            skills_dir=skills,
+            days=30,
+            min_evidence=1,
+            variants=3,
+        )
+    )
+
+    candidate = result["candidates"][0]
+    assert candidate["variants_requested"] == 3
+    assert [v["name"] for v in candidate["variants"]] == [
+        "default-verify-first",
+        "compact-evidence-first",
+        "wide-errors-first",
+    ]
+    selected = [v for v in candidate["variants"] if v["selected"]]
+    assert len(selected) == 1
+    assert candidate["selected_variant"]["name"] == selected[0]["name"]
+    assert result["config"]["variants"] == 3
+
+
+def test_auto_evolve_variants_apply_uses_winner_only(tmp_path):
+    db = tmp_path / "evidence.sqlite"
+    store = EvidenceStore(db)
+    skills = tmp_path / "skills"
+    backups = tmp_path / "backups"
+    skill_file = _write_skill(skills, "store-playbook")
+    for index in range(4):
+        store.record_tool_call(
+            tool_name="terminal",
+            args={"skills": ["store-playbook"]},
+            result={"exit_code": index, "output": f"sample-{index}"},
+            session_id=f"s{index}",
+        )
+
+    result = run_auto_evolve(
+        AutoEvolveConfig(
+            db_path=db,
+            skills_dir=skills,
+            backup_dir=backups,
+            days=30,
+            min_evidence=1,
+            apply_low_risk=True,
+            approve_auto_apply=True,
+            variants=3,
+        )
+    )
+
+    candidate = result["candidates"][0]
+    written = skill_file.read_text(encoding="utf-8")
+    selected_index = candidate["selected_variant"]["index"]
+    winning_content = next(
+        variant for variant in candidate["variants"] if variant["index"] == selected_index
+    )
+    assert candidate["status"] == "applied"
+    assert written.count("<!-- curator-evolver:auto:start -->") == 1
+    # Each variant has a distinct guidance phrasing — confirm the winner's phrasing made it in.
+    if winning_content["spec"]["guidance_style"] == "evidence-first":
+        assert "Reuse the matching evidence row above" in written
+    elif winning_content["spec"]["guidance_style"] == "errors-first":
+        assert "Replay the most recent error-marked evidence" in written
+    else:
+        assert "When this skill is relevant, check these observed signals" in written
+
+
+def test_auto_evolve_variants_is_deterministic(tmp_path):
+    db = tmp_path / "evidence.sqlite"
+    store = EvidenceStore(db)
+    skills = tmp_path / "skills"
+    _write_skill(skills, "hermes-agent")
+    for index in range(5):
+        store.record_tool_call(
+            tool_name="terminal",
+            args={"skills": ["hermes-agent"]},
+            result={"exit_code": index, "output": f"sample-{index}"},
+            session_id=f"s{index}",
+        )
+
+    first = run_auto_evolve(
+        AutoEvolveConfig(db_path=db, skills_dir=skills, days=30, min_evidence=1, variants=3)
+    )
+    second = run_auto_evolve(
+        AutoEvolveConfig(db_path=db, skills_dir=skills, days=30, min_evidence=1, variants=3)
+    )
+
+    first_summary = [
+        {k: v for k, v in variant.items() if k not in {"score_breakdown"}}
+        for variant in first["candidates"][0]["variants"]
+    ]
+    second_summary = [
+        {k: v for k, v in variant.items() if k not in {"score_breakdown"}}
+        for variant in second["candidates"][0]["variants"]
+    ]
+    # Index/name/spec/size_strategy/score/selected are stable across runs.
+    keys = {"index", "name", "spec", "size_strategy", "score", "selected"}
+    assert [{k: v[k] for k in keys} for v in first_summary] == [
+        {k: v[k] for k in keys} for v in second_summary
+    ]
+    assert (
+        first["candidates"][0]["selected_variant"]["name"]
+        == second["candidates"][0]["selected_variant"]["name"]
+    )
+
+
+def test_auto_evolve_apply_uses_staged_verify_when_pre_verify_command_set(tmp_path):
+    db = tmp_path / "evidence.sqlite"
+    store = EvidenceStore(db)
+    skills = tmp_path / "skills"
+    backups = tmp_path / "backups"
+    skill_file = _write_skill(skills, "store-playbook")
+    store.record_tool_call(
+        tool_name="skill_view",
+        args={"name": "store-playbook"},
+        result={"success": True},
+        session_id="s1",
+    )
+
+    result = run_auto_evolve(
+        AutoEvolveConfig(
+            db_path=db,
+            skills_dir=skills,
+            backup_dir=backups,
+            days=30,
+            min_evidence=1,
+            apply_low_risk=True,
+            approve_auto_apply=True,
+            pre_verify_command="true",
+        )
+    )
+
+    candidate = result["candidates"][0]
+    verify = candidate["apply_result"]["verify"]
+    assert verify["staged"] is True
+    stage_names = [stage["name"] for stage in verify["stages"]]
+    assert stage_names[0] == "builtin-structural"
+    assert "pre-verify-command" in stage_names
+    assert candidate["status"] == "applied"
+    assert "Auto-curated evidence notes" in skill_file.read_text(encoding="utf-8")
+    assert result["config"]["staged_verify"] is True

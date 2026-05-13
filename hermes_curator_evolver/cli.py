@@ -102,6 +102,15 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
     apply_cmd.add_argument("--backup-dir", default=".curator-evolver-backups", help="Backup root")
     apply_cmd.add_argument("--verify-command", help="Optional verification command")
     apply_cmd.add_argument("--verify-cwd", help="Working directory for verification command")
+    apply_cmd.add_argument(
+        "--pre-verify-command",
+        help="Optional cheap pre-check command; implies --staged-verify",
+    )
+    apply_cmd.add_argument(
+        "--staged-verify",
+        action="store_true",
+        help="Run built-in cheap structural check before any --verify-command",
+    )
     apply_cmd.add_argument("--approve", action="store_true", help="Explicitly approve applying")
     apply_cmd.set_defaults(func=handle_cli)
 
@@ -161,6 +170,21 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
     )
     auto_run.add_argument("--verify-command", help="Optional command to validate after each apply")
     auto_run.add_argument("--verify-cwd", help="Working directory for verification command")
+    auto_run.add_argument(
+        "--pre-verify-command",
+        help="Optional cheap pre-check command; runs before --verify-command and implies --staged-verify",
+    )
+    auto_run.add_argument(
+        "--staged-verify",
+        action="store_true",
+        help="Run built-in cheap structural check before any verify command (auto-on when --pre-verify-command is set)",
+    )
+    auto_run.add_argument(
+        "--variants",
+        type=int,
+        default=1,
+        help="Deterministically generate N bounded variants per skill (1-4) and pick a winner; default 1 preserves prior behavior",
+    )
     auto_run.add_argument(
         "--format", choices=["markdown", "json"], default="markdown", help="Output format"
     )
@@ -428,6 +452,8 @@ def handle_cli(args: argparse.Namespace) -> None:
             backup_root=values.get("backup_dir") or ".curator-evolver-backups",
             verify_command=values.get("verify_command"),
             verify_cwd=values.get("verify_cwd"),
+            pre_verify_command=values.get("pre_verify_command"),
+            staged_verify=bool(values.get("staged_verify") or values.get("pre_verify_command")),
         )
         print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
         return
@@ -451,9 +477,12 @@ def handle_cli(args: argparse.Namespace) -> None:
                 rerank_candidates=bool(values.get("rerank_candidates")),
                 verify_command=values.get("verify_command"),
                 verify_cwd=values.get("verify_cwd"),
+                pre_verify_command=values.get("pre_verify_command"),
+                staged_verify=bool(values.get("staged_verify") or values.get("pre_verify_command")),
                 protect_core_skills=bool(values.get("protect_core_skills")),
                 auto_apply_allowlist=tuple(values.get("allow_auto_apply_skill") or ()),
                 auto_apply_blocklist=tuple(values.get("block_auto_apply_skill") or ()),
+                variants=int(values.get("variants") or 1),
             )
         )
         print(format_auto_evolve_result(result, output_format=values.get("format") or "markdown"))

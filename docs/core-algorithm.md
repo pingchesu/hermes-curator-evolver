@@ -2,6 +2,8 @@
 
 This document explains the current `hermes-curator-evolver` algorithm in plain terms, including exactly where embedding and reranking are supported.
 
+For the clean-room rationale on **why HyperAgents is not a runtime dependency**, and the precise scope of the multi-variant candidate evaluation and staged verifier gate documented below, see [hyperagents-design-notes.md](hyperagents-design-notes.md).
+
 ## Short answer
 
 | Path | Uses embedding? | Uses reranker? | Can write skills? | Purpose |
@@ -288,6 +290,28 @@ The embedding model finds likely candidates first, then the reranker scores quer
 - Writes still require `--apply-low-risk --approve-auto-apply`.
 - Output includes selection mode, model names, scores, and reasons for each candidate.
 - Timer install stays model-free unless the user explicitly opts in.
+
+## Optional: multi-variant candidate evaluation (`--variants N`)
+
+`auto-run --variants N` (default `N=1`) deterministically generates up to four bounded variants per evidence-eligible skill and picks one winner before any guarded apply.
+
+- Variants only vary knobs that are already inside the bounded mutation policy: number of inline evidence rows, whether evidence spills into `references/`, and which "agent guidance" phrasing leads the managed block.
+- Variant 0 is always the prior default, so `--variants 1` is byte-identical to the pre-variants behavior.
+- The scorer is deterministic and model-free: it prefers inline strategy over spillover, more hard-cap slack, and smaller diff from the existing skill. Ties break on variant index, so the same input always picks the same winner.
+- Dry-run output exposes `candidate.variants[]` summaries (name, spec, size strategy, content chars, score, selected flag) and a `candidate.selected_variant` block for review.
+- Auto-apply still goes through the existing source/approval/hash/backup/verification gates and writes only the winner.
+
+This adapts the multi-candidate evaluation idea clean-room — there is no agent loop, no model selecting variants, and no execution of model-generated content. See [hyperagents-design-notes.md](hyperagents-design-notes.md) for the full rationale.
+
+## Optional: staged verifier gate
+
+`apply_guarded_patch` (and `auto-run` via `--staged-verify` or `--pre-verify-command`) supports a cheap-then-expensive verifier chain after the write happens.
+
+- **Stage 1 — `builtin-structural`**: in-process check; the post-write file must stay under the 100k hard cap, keep the managed-block markers balanced, and keep parseable frontmatter. No subprocess.
+- **Stage 2 (optional) — `pre-verify-command`**: a caller-supplied cheap pre-check shell command. Useful for a fast lint or schema validation.
+- **Stage 3 — `verify-command`**: the same expensive verifier callers were passing before (e.g., the bundled `skill_validate` validator or `python -m pytest -q`).
+
+The expensive stage is skipped entirely if any earlier stage fails, and any stage failure triggers the existing rollback path. Backward compatibility: when no `--staged-verify` / `--pre-verify-command` is requested, the verifier shape and behavior are unchanged. When staged verification is in use, the result keeps top-level `verify.passed` / `verify.exit_code` / `verify.output` so existing tooling continues to work, and adds a `verify.stages[]` list with per-stage results plus `verify.failed_stage` on failure.
 
 ## Mental model
 

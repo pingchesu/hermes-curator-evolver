@@ -19,8 +19,16 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .guarded_apply import apply_guarded_patch, sha256_file
+from .guarded_apply import (
+    apply_guarded_patch,
+    register_support_file_in_manifest,
+    sha256_file,
+)
 from .reports import build_report
+from .restore_drill import (
+    DRILL_STATE_FILENAME,
+    evaluate_restore_drill_gate,
+)
 from .semantic import find_skill_candidates
 from .skill_sources import (
     SOURCE_LOCAL_AGENT_CREATED,
@@ -92,6 +100,8 @@ class AutoEvolveConfig:
     auto_apply_allowlist: tuple[str, ...] = ()
     auto_apply_blocklist: tuple[str, ...] = ()
     variants: int = 1
+    require_restore_drill: bool = False
+    restore_drill_state_path: str | Path | None = None
 
 
 @dataclass(frozen=True)
@@ -724,6 +734,25 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
     candidates: list[dict[str, Any]] = []
     applied = 0
 
+    drill_state_path = (
+        Path(cfg.restore_drill_state_path)
+        if cfg.restore_drill_state_path is not None
+        else backup_dir / DRILL_STATE_FILENAME
+    )
+    drill_gate = evaluate_restore_drill_gate(
+        drill_state_path,
+        require=bool(cfg.require_restore_drill),
+    )
+    block_mutations_for_drill = bool(
+        cfg.apply_low_risk
+        and cfg.approve_auto_apply
+        and cfg.require_restore_drill
+        and not drill_gate["allowed"]
+    )
+
+    scheduler_refs = _scheduler_refs_if_installed()
+    evidence_refs: dict[str, Any] = {"db_path": str(store.db_path)}
+
     for name in names:
         skill_file = skill_files.get(name)
         source_info = (
@@ -832,7 +861,18 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
                     "applied": False,
                     "reason": "auto-approval-required",
                 }
+            elif block_mutations_for_drill:
+                candidate["status"] = "skipped"
+                candidate["reason"] = "restore-drill-required"
+                candidate["restore_drill_gate"] = drill_gate
+                candidates.append(candidate)
+                continue
             else:
+                provenance_payload = {
+                    "skill_name": name,
+                    "source": source_info.source if source_info else "unknown",
+                    "writable": bool(source_info.writable) if source_info else False,
+                }
                 apply_result = apply_guarded_patch(
                     target_path=skill_file,
                     new_content=updated,
@@ -843,6 +883,10 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
                     verify_cwd=cfg.verify_cwd or skills_dir,
                     pre_verify_command=cfg.pre_verify_command,
                     staged_verify=bool(cfg.staged_verify or cfg.pre_verify_command),
+                    skill_name=name,
+                    provenance=provenance_payload,
+                    evidence_refs=evidence_refs,
+                    scheduler_refs=scheduler_refs,
                 )
                 candidate["apply_result"] = apply_result
                 if apply_result.get("applied"):
@@ -850,12 +894,28 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
                         support_path = skill_file.parent / relative_path
                         support_path.parent.mkdir(parents=True, exist_ok=True)
                         support_path.write_text(content, encoding="utf-8")
+                        register_support_file_in_manifest(
+                            apply_result["manifest_path"],
+                            source_path=support_path,
+                            relative_path=relative_path,
+                            kind="reference-spillover",
+                        )
                     applied += 1
                     candidate["status"] = "applied"
+                    if cfg.require_restore_drill:
+                        block_mutations_for_drill = True
+                        drill_gate = evaluate_restore_drill_gate(
+                            drill_state_path,
+                            require=True,
+                        )
         candidates.append(candidate)
 
+    final_gate = evaluate_restore_drill_gate(
+        drill_state_path,
+        require=bool(cfg.require_restore_drill),
+    )
     return {
-        "schema_version": "0.7",
+        "schema_version": "0.8",
         "mode": mode,
         "safety": {
             "core_modifications": False,
@@ -868,6 +928,9 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
             "auto_apply_allowlist": list(_normalize_patterns(cfg.auto_apply_allowlist)),
             "auto_apply_blocklist": list(_normalize_patterns(cfg.auto_apply_blocklist)),
             "mutation_policy": "bounded managed block + reference spillover + guarded apply backup/rollback",
+            "require_restore_drill": bool(cfg.require_restore_drill),
+            "restore_drill_gate": final_gate,
+            "restore_drill_state_path": str(drill_state_path),
         },
         "config": {
             "db_path": str(store.db_path),
@@ -889,6 +952,8 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
             "variants": _bounded(cfg.variants or 1, minimum=1, maximum=len(_VARIANT_SPECS)),
             "staged_verify": bool(cfg.staged_verify or cfg.pre_verify_command),
             "pre_verify_command": cfg.pre_verify_command,
+            "require_restore_drill": bool(cfg.require_restore_drill),
+            "restore_drill_state_path": str(drill_state_path),
         },
         "selection": selection,
         "summary": {
@@ -902,6 +967,25 @@ def run_auto_evolve(config: AutoEvolveConfig | None = None) -> dict[str, Any]:
 
 def _systemd_dir() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "systemd" / "user"
+
+
+def _scheduler_refs_if_installed() -> dict[str, Any] | None:
+    """Return scheduler unit paths if this plugin's user timer is installed.
+
+    The restore drill uses these references to confirm cron/scheduler hooks
+    that drive unattended auto-apply can be located alongside any rollback
+    manifest. Returns ``None`` when no scheduler hooks are present.
+    """
+
+    unit_dir = _systemd_dir()
+    service_path = unit_dir / "hermes-curator-evolver-auto.service"
+    timer_path = unit_dir / "hermes-curator-evolver-auto.timer"
+    refs: dict[str, Any] = {}
+    if service_path.exists():
+        refs["service_path"] = str(service_path)
+    if timer_path.exists():
+        refs["timer_path"] = str(timer_path)
+    return refs or None
 
 
 def install_auto_timer(
@@ -1056,6 +1140,7 @@ def uninstall_auto_timer(*, disable: bool = True) -> dict[str, Any]:
 def format_auto_evolve_result(result: dict[str, Any], *, output_format: str) -> str:
     if output_format == "json":
         return json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True)
+    drill_gate = (result.get("safety") or {}).get("restore_drill_gate") or {}
     lines = [
         "# Hermes Curator Evolver Auto Run",
         "",
@@ -1064,6 +1149,7 @@ def format_auto_evolve_result(result: dict[str, Any], *, output_format: str) -> 
         f"- Applied: {result['summary']['applied']}",
         f"- Skipped: {result['summary']['skipped']}",
         f"- Selection: `{result.get('selection', {}).get('mode', 'unknown')}`",
+        f"- Restore drill gate: `{drill_gate.get('reason', 'unknown')}` (allowed={drill_gate.get('allowed')})",
         "",
         "## Candidates",
         "",

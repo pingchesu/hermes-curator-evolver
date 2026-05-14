@@ -220,6 +220,14 @@ Hard defaults:
 - ✅ `--semantic-candidates` / `--rerank-candidates` are explicit opt-ins and only reorder skills that already passed the evidence threshold.
 - ✅ Optional `--variants N` (default `1`) deterministically generates up to four bounded variants and picks one winner; only the winner is applied, and variant generation never executes model-generated code. See [docs/hyperagents-design-notes.md](docs/hyperagents-design-notes.md).
 - ✅ Optional staged verifier gate: cheap built-in structural check (managed-block + size invariants) runs before any expensive `--verify-command`, so a failing cheap stage skips the expensive stage entirely and still rolls back.
+- ✅ Optional restore-drill gate: `hermes-curator-evolver restore-drill --manifest <manifest>` replays a rollback manifest into a clean temp directory and emits a pass/fail report. Pair with `auto-run --require-restore-drill` to refuse further mutating apply when the last apply has not been drill-verified yet (default: warn only, never silent).
+
+### Rollback manifest vs restore drill
+
+| Concept | What it proves |
+| --- | --- |
+| **Rollback manifest** | Records original SHA, backup path, support-file snapshots, provenance, evidence DB reference, and any scheduler hooks at the moment of apply. Lets `rollback` restore the prior file in place. |
+| **Restore drill** | Actually replays that manifest into a clean directory (default: temp dir; explicit `--target-dir` must be empty) and verifies: skill content sha256, support files (references/templates/scripts/assets), evidence DB reference is a real SQLite file, provenance metadata is recorded, scheduler/cron references exist on disk. Emits machine-readable JSON. Drill state is checked by `auto-run --require-restore-drill` so unattended apply can refuse to widen risk after a failed, missing, stale, or unreadable drill state. |
 
 ## Examples and demo
 
@@ -281,6 +289,10 @@ hermes-curator-evolver apply \
 # Rollback
 hermes-curator-evolver rollback --manifest .curator-evolver-backups/<timestamp>/manifest.json
 
+# Restore drill (non-destructive: replay manifest into a clean dir and report pass/fail)
+hermes-curator-evolver restore-drill --manifest .curator-evolver-backups/<timestamp>/manifest.json --format json
+hermes-curator-evolver restore-drill --manifest .curator-evolver-backups/<timestamp>/manifest.json --target-dir /tmp/drill-XYZ --format markdown
+
 # Automatic evolution
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --format json                  # dry-run
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --semantic-candidates --rerank-candidates --format json
@@ -290,6 +302,7 @@ hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk -
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply --allow-auto-apply-skill store-playbook  # only within local agent-created source boundary
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --variants 3 --format json                                                   # generate 3 deterministic variants, pick winner (dry-run)
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply --staged-verify                        # cheap built-in check before expensive verify
+hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply --require-restore-drill              # block apply unless last apply was drill-verified
 hermes-curator-evolver install-auto --schedule daily --enable
 hermes-curator-evolver install-auto --schedule daily --enable --semantic-candidates --rerank-candidates
 hermes-curator-evolver uninstall-auto

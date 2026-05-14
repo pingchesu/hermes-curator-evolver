@@ -1,23 +1,47 @@
 {
-  "created_at": "2026-05-09T00:00:00Z",
+  "schema_version": "0.6",
+  "created_at": "2026-05-14T00:00:00Z",
   "tool": "hermes-curator-evolver",
   "operation": "guarded-apply",
-  "target": "/home/user/.hermes/skills/local/my-skill/SKILL.md",
-  "target_sha256_before": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
-  "target_sha256_after": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
-  "backup_path": "/home/user/.hermes/plugins/curator-evolver/backups/20260509T000000Z/SKILL.md",
-  "validation": {
-    "command": "python -m pytest -q",
-    "exit_code": 0
+  "skill_name": "store-playbook",
+  "target_path": "/home/user/.hermes/skills/local/store-playbook/SKILL.md",
+  "original_sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+  "new_sha256": "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210",
+  "backup_path": "/home/user/.hermes/plugins/curator-evolver/backups/20260514T000000Z/SKILL.md",
+  "applied_at": "2026-05-14T00:00:00+00:00",
+  "rolled_back": false,
+  "provenance": {
+    "skill_name": "store-playbook",
+    "source": "local-agent-created",
+    "writable": true
   },
-  "staged_verify_example": {
-    "staged": true,
+  "evidence": {
+    "db_path": "/home/user/.hermes/plugins/curator-evolver/data/evidence.sqlite",
+    "session_ids": ["s-2026-05-14-001"]
+  },
+  "scheduler": {
+    "service_path": "/home/user/.config/systemd/user/hermes-curator-evolver-auto.service",
+    "timer_path": "/home/user/.config/systemd/user/hermes-curator-evolver-auto.timer"
+  },
+  "support_files": [
+    {
+      "path": "references/curator-evolver-auto-store-playbook-20260514-000000.md",
+      "kind": "reference-spillover",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "backup_path": "/home/user/.hermes/plugins/curator-evolver/backups/20260514T000000Z/support/references/curator-evolver-auto-store-playbook-20260514-000000.md",
+      "recorded_at": "2026-05-14T00:00:01+00:00"
+    }
+  ],
+  "verify": {
+    "enabled": true,
     "passed": true,
     "exit_code": 0,
+    "staged": true,
     "stages": [
       {"name": "builtin-structural", "passed": true, "content_chars": 12345, "reason": "ok"},
       {"name": "verify-command", "passed": true, "exit_code": 0}
     ]
   },
-  "rollback_command": "hermes-curator-evolver rollback --manifest /home/user/.hermes/plugins/curator-evolver/backups/20260509T000000Z/manifest.json"
+  "rollback_command": "hermes-curator-evolver rollback --manifest /home/user/.hermes/plugins/curator-evolver/backups/20260514T000000Z/manifest.json",
+  "restore_drill_command": "hermes-curator-evolver restore-drill --manifest /home/user/.hermes/plugins/curator-evolver/backups/20260514T000000Z/manifest.json --format json"
 }

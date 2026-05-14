@@ -111,6 +111,7 @@ Hard rules:
 - Auto-run mutates only when both `--apply-low-risk` and `--approve-auto-apply` are provided.
 - Even then, auto-run writes only local agent-created skills. Bundled/official, hub-installed, plugin-provided, `skills.external_dirs`, pinned, and unknown sources are skipped before any name allowlist/blocklist is considered. `--allow-auto-apply-skill <pattern>` only relaxes the extra core-name guard inside that source boundary.
 - Auto-run preserves existing skill text and writes only a managed `curator-evolver:auto` block.
+- Optional restore-drill gate: every guarded apply now records provenance, an evidence-DB reference, any scheduler unit paths, and per-support-file snapshots into the manifest. `hermes-curator-evolver restore-drill --manifest <manifest>` replays that manifest into a clean temp directory (or an explicit empty `--target-dir`) and emits a machine-readable pass/fail JSON report. Pair with `auto-run --require-restore-drill` to refuse subsequent mutating apply when the last apply has no matching successful drill yet, or when the drill-state file is unreadable (default: warn only, never silent).
 
 ## Current commands
 
@@ -126,6 +127,7 @@ hermes-curator-evolver candidates --query "gateway restart" --skills-dir ~/.herm
 hermes-curator-evolver candidates --query "gateway restart" --skills-dir ~/.hermes/skills --execute-semantic --rerank --format json
 hermes-curator-evolver apply --target ./SKILL.md --content-file ./reviewed-SKILL.md --expected-sha256 <sha> --approve
 hermes-curator-evolver rollback --manifest .curator-evolver-backups/<timestamp>/manifest.json
+hermes-curator-evolver restore-drill --manifest .curator-evolver-backups/<timestamp>/manifest.json --format json
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --apply-low-risk --approve-auto-apply
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --semantic-candidates --rerank-candidates --apply-low-risk --approve-auto-apply
 hermes-curator-evolver install-auto --schedule daily --enable

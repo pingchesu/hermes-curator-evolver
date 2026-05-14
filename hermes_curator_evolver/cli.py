@@ -23,6 +23,10 @@ from .proposals import (
     hermes_chat_backend,
 )
 from .reports import build_default_report, format_json_report, format_markdown_report
+from .restore_drill import (
+    format_drill_report,
+    run_restore_drill,
+)
 from .semantic import find_skill_candidates
 from .storage import EvidenceStore
 from .verifier import verify_proposal
@@ -119,6 +123,24 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
     rollback.add_argument("--force", action="store_true", help="Rollback even if target changed after apply")
     rollback.set_defaults(func=handle_cli)
 
+    restore_drill = subs.add_parser(
+        "restore-drill",
+        help="Non-destructive restore drill: replay a rollback manifest into a clean dir and report",
+    )
+    restore_drill.add_argument("--manifest", required=True, help="Path to manifest.json from a prior guarded apply")
+    restore_drill.add_argument(
+        "--target-dir",
+        help="Optional drill destination directory (default: a fresh temp dir)",
+    )
+    restore_drill.add_argument(
+        "--state-file",
+        help="Optional path to the restore-drill state JSON (default: <backup_root>/restore-drill-state.json)",
+    )
+    restore_drill.add_argument(
+        "--format", choices=["markdown", "json"], default="json", help="Output format"
+    )
+    restore_drill.set_defaults(func=handle_cli)
+
     auto_run = subs.add_parser("auto-run", help="Run one automatic low-risk evolution pass")
     auto_run.add_argument("--days", type=int, default=7, help="Lookback window in days")
     auto_run.add_argument("--skills-dir", help="Skills root (default: ~/.hermes/skills)")
@@ -184,6 +206,15 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
         type=int,
         default=1,
         help="Deterministically generate N bounded variants per skill (1-4) and pick a winner; default 1 preserves prior behavior",
+    )
+    auto_run.add_argument(
+        "--require-restore-drill",
+        action="store_true",
+        help="Refuse mutating auto-apply if the last guarded apply has no matching successful restore drill (default: warn only)",
+    )
+    auto_run.add_argument(
+        "--restore-drill-state-file",
+        help="Override the path to the restore-drill state JSON (default: <backup_root>/restore-drill-state.json)",
     )
     auto_run.add_argument(
         "--format", choices=["markdown", "json"], default="markdown", help="Output format"
@@ -483,9 +514,20 @@ def handle_cli(args: argparse.Namespace) -> None:
                 auto_apply_allowlist=tuple(values.get("allow_auto_apply_skill") or ()),
                 auto_apply_blocklist=tuple(values.get("block_auto_apply_skill") or ()),
                 variants=int(values.get("variants") or 1),
+                require_restore_drill=bool(values.get("require_restore_drill")),
+                restore_drill_state_path=values.get("restore_drill_state_file"),
             )
         )
         print(format_auto_evolve_result(result, output_format=values.get("format") or "markdown"))
+        return
+
+    if command == "restore-drill":
+        report = run_restore_drill(
+            values["manifest"],
+            target_dir=values.get("target_dir"),
+            state_path=values.get("state_file"),
+        )
+        print(format_drill_report(report, output_format=values.get("format") or "json"))
         return
 
     if command == "bootstrap":

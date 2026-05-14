@@ -14,6 +14,11 @@ from typing import Any
 
 import yaml
 
+from .restore_drill import (
+    DRILL_STATE_FILENAME,
+    record_apply_in_state,
+)
+
 
 _MANAGED_BLOCK_START = "<!-- curator-evolver:auto:start -->"
 _MANAGED_BLOCK_END = "<!-- curator-evolver:auto:end -->"
@@ -213,6 +218,10 @@ def apply_guarded_patch(
     verify_cwd: str | Path | None = None,
     pre_verify_command: str | None = None,
     staged_verify: bool = False,
+    skill_name: str | None = None,
+    provenance: dict[str, Any] | None = None,
+    evidence_refs: dict[str, Any] | None = None,
+    scheduler_refs: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Apply a reviewed patch with approval/hash/backup/verify gates.
 
@@ -246,8 +255,8 @@ def apply_guarded_patch(
     backup_path = backup_dir / target.name
     shutil.copy2(target, backup_path)
     manifest_path = backup_dir / "manifest.json"
-    manifest = {
-        "schema_version": "0.5",
+    manifest: dict[str, Any] = {
+        "schema_version": "0.6",
         "target_path": str(target),
         "backup_path": str(backup_path),
         "original_sha256": current_hash,
@@ -255,6 +264,15 @@ def apply_guarded_patch(
         "applied_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "rolled_back": False,
         "verify": None,
+        "skill_name": skill_name,
+        "provenance": (
+            {**dict(provenance), "skill_name": provenance.get("skill_name") or skill_name}
+            if provenance
+            else ({"skill_name": skill_name} if skill_name else None)
+        ),
+        "evidence": dict(evidence_refs) if evidence_refs else None,
+        "scheduler": dict(scheduler_refs) if scheduler_refs else None,
+        "support_files": [],
     }
     _write_manifest(manifest_path, manifest)
 
@@ -300,6 +318,14 @@ def apply_guarded_patch(
         }
 
     _write_manifest(manifest_path, manifest)
+    drill_state_path = Path(backup_root) / DRILL_STATE_FILENAME
+    record_apply_in_state(
+        drill_state_path,
+        manifest_path=manifest_path,
+        applied_at=manifest["applied_at"],
+        target_path=str(target),
+        skill_name=skill_name,
+    )
     return {
         "applied": True,
         "reason": "applied",
@@ -308,7 +334,57 @@ def apply_guarded_patch(
         "manifest_path": str(manifest_path),
         "new_sha256": manifest["new_sha256"],
         "verify": verify,
+        "drill_state_path": str(drill_state_path),
     }
+
+
+def register_support_file_in_manifest(
+    manifest_path: str | Path,
+    *,
+    source_path: str | Path,
+    relative_path: str,
+    kind: str = "support",
+) -> dict[str, Any]:
+    """Snapshot a post-apply support file into the backup and record it.
+
+    Auto-run writes managed support files (e.g. ``references/...``) after
+    a successful apply. Recording their content here means a later restore
+    drill can recreate the exact prior-apply skill state into a clean
+    directory, not just the main ``SKILL.md``.
+    """
+
+    manifest_file = Path(manifest_path)
+    source = Path(source_path)
+    if not source.exists() or not source.is_file():
+        return {"recorded": False, "reason": "source-not-found", "source_path": str(source)}
+    manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+    backup_dir = manifest_file.parent
+    support_root = backup_dir / "support"
+    safe_relative = Path(relative_path)
+    if safe_relative.is_absolute() or any(part == ".." for part in safe_relative.parts):
+        return {
+            "recorded": False,
+            "reason": "unsafe-relative-path",
+            "relative_path": str(safe_relative),
+        }
+    snapshot_path = support_root / safe_relative
+    snapshot_path.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, snapshot_path)
+    entry = {
+        "path": str(safe_relative).replace("\\", "/"),
+        "kind": kind,
+        "sha256": sha256_file(snapshot_path),
+        "backup_path": str(snapshot_path),
+        "recorded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+    }
+    existing = manifest.get("support_files")
+    if not isinstance(existing, list):
+        existing = []
+    existing = [item for item in existing if not (isinstance(item, dict) and item.get("path") == entry["path"])]
+    existing.append(entry)
+    manifest["support_files"] = existing
+    _write_manifest(manifest_file, manifest)
+    return {"recorded": True, "entry": entry}
 
 
 def rollback_guarded_patch(manifest_path: str | Path, *, force: bool = False) -> dict[str, Any]:

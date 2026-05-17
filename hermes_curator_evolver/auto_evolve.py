@@ -10,6 +10,7 @@ guardrails.
 from __future__ import annotations
 
 import fnmatch
+import html
 import json
 import os
 import re
@@ -177,6 +178,15 @@ def _systemd_quote(value: str) -> str:
     """Quote one systemd ExecStart argument while keeping the command readable."""
 
     return '"' + value.replace('\\', '\\\\').replace('"', '\"') + '"'
+
+
+def _quote_systemd_arg(value: str) -> str:
+    """Quote an ExecStart argument only when systemd parsing needs it."""
+
+    value = str(value)
+    if not value or any(ch.isspace() for ch in value) or any(ch in value for ch in '"\\'):
+        return _systemd_quote(value)
+    return value
 
 
 def _skill_matches_any_pattern(skill_name: str, patterns: tuple[str, ...] | list[str] | None) -> bool:
@@ -969,6 +979,99 @@ def _systemd_dir() -> Path:
     return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / "systemd" / "user"
 
 
+def _launchd_dir() -> Path:
+    return Path.home() / "Library" / "LaunchAgents"
+
+
+def _scheduler_backend() -> str:
+    return "launchd" if sys.platform == "darwin" else "systemd"
+
+
+def _launchd_label() -> str:
+    return "com.pingchesu.hermes-curator-evolver.auto"
+
+
+def _launchd_plist_path() -> Path:
+    return _launchd_dir() / f"{_launchd_label()}.plist"
+
+
+def _launchd_schedule_block(schedule: str) -> tuple[str, str]:
+    """Return (canonical_schedule, plist snippet) for launchd."""
+
+    normalized = {"hourly": "hourly", "daily": "daily", "weekly": "weekly"}.get(schedule, schedule)
+    if normalized == "hourly":
+        return normalized, "  <key>StartInterval</key>\n  <integer>3600</integer>"
+    if normalized == "daily":
+        return normalized, (
+            "  <key>StartCalendarInterval</key>\n"
+            "  <dict>\n"
+            "    <key>Hour</key>\n"
+            "    <integer>9</integer>\n"
+            "    <key>Minute</key>\n"
+            "    <integer>0</integer>\n"
+            "  </dict>"
+        )
+    if normalized == "weekly":
+        return normalized, (
+            "  <key>StartCalendarInterval</key>\n"
+            "  <dict>\n"
+            "    <key>Weekday</key>\n"
+            "    <integer>1</integer>\n"
+            "    <key>Hour</key>\n"
+            "    <integer>9</integer>\n"
+            "    <key>Minute</key>\n"
+            "    <integer>0</integer>\n"
+            "  </dict>"
+        )
+    if str(normalized).isdigit() and int(normalized) > 0:
+        return str(normalized), f"  <key>StartInterval</key>\n  <integer>{int(normalized)}</integer>"
+    raise ValueError(
+        "launchd scheduler supports hourly, daily, weekly, or numeric seconds; "
+        "custom systemd OnCalendar schedules require Linux/systemd"
+    )
+
+
+def _write_launchd_plist(plist_path: Path, *, args: list[str], schedule: str) -> str:
+    """Write a macOS LaunchAgent plist and return the canonical schedule."""
+
+    canonical_schedule, schedule_block = _launchd_schedule_block(schedule)
+    log_dir = Path.home() / ".hermes" / "plugins" / "curator-evolver" / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    plist_path.parent.mkdir(parents=True, exist_ok=True)
+    program_arguments = "\n".join(f"    <string>{html.escape(str(arg))}</string>" for arg in args)
+    plist_path.write_text(
+        "\n".join(
+            [
+                '<?xml version="1.0" encoding="UTF-8"?>',
+                '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">',
+                '<plist version="1.0">',
+                '<dict>',
+                '  <key>Label</key>',
+                f'  <string>{_launchd_label()}</string>',
+                '  <key>ProgramArguments</key>',
+                '  <array>',
+                program_arguments,
+                '  </array>',
+                '  <key>EnvironmentVariables</key>',
+                '  <dict>',
+                '    <key>PYTHONUNBUFFERED</key>',
+                '    <string>1</string>',
+                '  </dict>',
+                schedule_block,
+                '  <key>StandardOutPath</key>',
+                f'  <string>{html.escape(str(log_dir / "auto-run.out.log"))}</string>',
+                '  <key>StandardErrorPath</key>',
+                f'  <string>{html.escape(str(log_dir / "auto-run.err.log"))}</string>',
+                '</dict>',
+                '</plist>',
+                '',
+            ]
+        ),
+        encoding="utf-8",
+    )
+    return canonical_schedule
+
+
 def _scheduler_refs_if_installed() -> dict[str, Any] | None:
     """Return scheduler unit paths if this plugin's user timer is installed.
 
@@ -977,14 +1080,16 @@ def _scheduler_refs_if_installed() -> dict[str, Any] | None:
     manifest. Returns ``None`` when no scheduler hooks are present.
     """
 
-    unit_dir = _systemd_dir()
-    service_path = unit_dir / "hermes-curator-evolver-auto.service"
-    timer_path = unit_dir / "hermes-curator-evolver-auto.timer"
     refs: dict[str, Any] = {}
+    service_path = _systemd_dir() / "hermes-curator-evolver-auto.service"
+    timer_path = _systemd_dir() / "hermes-curator-evolver-auto.timer"
+    plist_path = _launchd_plist_path()
     if service_path.exists():
         refs["service_path"] = str(service_path)
     if timer_path.exists():
         refs["timer_path"] = str(timer_path)
+    if plist_path.exists():
+        refs["plist_path"] = str(plist_path)
     return refs or None
 
 
@@ -1003,18 +1108,15 @@ def install_auto_timer(
     verify_cwd: str | Path | None = None,
     verify_skills: bool = True,
 ) -> dict[str, Any]:
-    """Install a user systemd timer for automatic evolution.
+    """Install a user scheduler for automatic evolution.
 
-    The timer is disabled unless `enable=True`, so package install can stay
+    Linux uses a user systemd timer. macOS uses a user LaunchAgent plist.
+    The scheduler is disabled unless `enable=True`, so package install can stay
     non-invasive while still providing a one-command plug-in automation path.
     """
 
-    unit_dir = _systemd_dir()
-    unit_dir.mkdir(parents=True, exist_ok=True)
-    service_path = unit_dir / "hermes-curator-evolver-auto.service"
-    timer_path = unit_dir / "hermes-curator-evolver-auto.timer"
+    scheduler = _scheduler_backend()
     target_skills = Path(skills_dir) if skills_dir is not None else _default_skills_dir()
-    on_calendar = {"hourly": "hourly", "daily": "daily", "weekly": "weekly"}.get(schedule, schedule)
     effective_verify_command = verify_command
     effective_verify_cwd = Path(verify_cwd) if verify_cwd is not None else target_skills
     if apply_low_risk and verify_skills and effective_verify_command is None:
@@ -1044,9 +1146,51 @@ def install_auto_timer(
         for pattern in _normalize_patterns(auto_apply_blocklist):
             args.extend(["--block-auto-apply-skill", pattern])
     if effective_verify_command:
-        args.extend(["--verify-command", _systemd_quote(effective_verify_command)])
+        args.extend(["--verify-command", effective_verify_command])
         args.extend(["--verify-cwd", str(effective_verify_cwd)])
-    command = " ".join(args)
+    command = " ".join(_quote_systemd_arg(str(arg)) for arg in args)
+    result = {
+        "installed": True,
+        "enabled": False,
+        "scheduler": scheduler,
+        "service_path": None,
+        "timer_path": None,
+        "plist_path": None,
+        "schedule": schedule,
+        "semantic_candidates": bool(semantic_candidates or rerank_candidates),
+        "rerank_candidates": bool(rerank_candidates),
+        "protect_core_skills": bool(protect_core_skills),
+        "auto_apply_policy": "local-agent-created-skills-only" if apply_low_risk else "dry-run-only",
+        "auto_apply_allowlist": list(_normalize_patterns(auto_apply_allowlist)),
+        "auto_apply_blocklist": list(_normalize_patterns(auto_apply_blocklist)),
+        "verify_command": effective_verify_command,
+        "verify_cwd": str(effective_verify_cwd) if effective_verify_command else None,
+        "command": command,
+    }
+
+    if scheduler == "launchd":
+        plist_path = _launchd_plist_path()
+        result["schedule"] = _write_launchd_plist(plist_path, args=args, schedule=schedule)
+        result["plist_path"] = str(plist_path)
+        if enable:
+            import subprocess
+
+            completed = subprocess.run(
+                ["launchctl", "bootstrap", f"gui/{os.getuid()}", str(plist_path)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                check=False,
+            )
+            result["enabled"] = completed.returncode == 0
+            result["launchctl"] = {"exit_code": completed.returncode, "output": completed.stdout[-2000:]}
+        return result
+
+    unit_dir = _systemd_dir()
+    unit_dir.mkdir(parents=True, exist_ok=True)
+    service_path = unit_dir / "hermes-curator-evolver-auto.service"
+    timer_path = unit_dir / "hermes-curator-evolver-auto.timer"
+    on_calendar = {"hourly": "hourly", "daily": "daily", "weekly": "weekly"}.get(schedule, schedule)
     service_path.write_text(
         "\n".join(
             [
@@ -1079,22 +1223,9 @@ def install_auto_timer(
         ),
         encoding="utf-8",
     )
-    result = {
-        "installed": True,
-        "enabled": False,
-        "service_path": str(service_path),
-        "timer_path": str(timer_path),
-        "schedule": on_calendar,
-        "semantic_candidates": bool(semantic_candidates or rerank_candidates),
-        "rerank_candidates": bool(rerank_candidates),
-        "protect_core_skills": bool(protect_core_skills),
-        "auto_apply_policy": "local-agent-created-skills-only" if apply_low_risk else "dry-run-only",
-        "auto_apply_allowlist": list(_normalize_patterns(auto_apply_allowlist)),
-        "auto_apply_blocklist": list(_normalize_patterns(auto_apply_blocklist)),
-        "verify_command": effective_verify_command,
-        "verify_cwd": str(effective_verify_cwd) if effective_verify_command else None,
-        "command": command,
-    }
+    result["service_path"] = str(service_path)
+    result["timer_path"] = str(timer_path)
+    result["schedule"] = on_calendar
     if enable:
         import subprocess
 
@@ -1111,12 +1242,33 @@ def install_auto_timer(
 
 
 def uninstall_auto_timer(*, disable: bool = True) -> dict[str, Any]:
-    """Remove the user systemd timer/service installed by this plugin."""
+    """Remove the user scheduler installed by this plugin."""
+
+    scheduler = _scheduler_backend()
+    result: dict[str, Any] = {"scheduler": scheduler, "removed": [], "missing": []}
+    if scheduler == "launchd":
+        plist_path = _launchd_plist_path()
+        if disable:
+            import subprocess
+
+            completed = subprocess.run(
+                ["launchctl", "bootout", f"gui/{os.getuid()}", str(plist_path)],
+                text=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                check=False,
+            )
+            result["launchctl"] = {"exit_code": completed.returncode, "output": completed.stdout[-2000:]}
+        if plist_path.exists():
+            plist_path.unlink()
+            result["removed"].append(str(plist_path))
+        else:
+            result["missing"].append(str(plist_path))
+        return result
 
     unit_dir = _systemd_dir()
     service_path = unit_dir / "hermes-curator-evolver-auto.service"
     timer_path = unit_dir / "hermes-curator-evolver-auto.timer"
-    result: dict[str, Any] = {"removed": [], "missing": []}
     if disable:
         import subprocess
 

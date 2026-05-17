@@ -223,40 +223,44 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
 
     bootstrap = subs.add_parser(
         "bootstrap",
-        help="One-command setup: backfill sessions and install the auto-run timer",
+        help="One-command setup: backfill sessions and install the auto-run scheduler",
     )
     bootstrap.add_argument("--days", type=int, default=30, help="Historical session backfill window")
     bootstrap.add_argument("--sessions-dir", help="Hermes sessions directory (default: ~/.hermes/sessions)")
-    bootstrap.add_argument("--skills-dir", help="Skills root for the timer command (default: ~/.hermes/skills)")
-    bootstrap.add_argument("--schedule", default="daily", help="systemd OnCalendar value or hourly/daily/weekly")
-    bootstrap.add_argument("--proposal-only", action="store_true", help="Install dry-run timer instead of applying low-risk updates")
+    bootstrap.add_argument("--skills-dir", help="Skills root for the scheduler command (default: ~/.hermes/skills)")
+    bootstrap.add_argument(
+        "--schedule",
+        default="daily",
+        help="Scheduler cadence: hourly/daily/weekly; Linux also accepts systemd OnCalendar values",
+    )
+    bootstrap.add_argument("--proposal-only", action="store_true", help="Install dry-run scheduler instead of applying low-risk updates")
     bootstrap.add_argument(
         "--semantic",
         action="store_true",
-        help="Shortcut for semantic + rerank timer candidate ordering (explicit model opt-in)",
+        help="Shortcut for semantic + rerank scheduler candidate ordering (explicit model opt-in)",
     )
     bootstrap.add_argument(
         "--semantic-candidates",
         action="store_true",
-        help="Timer uses embedding-backed candidate ordering",
+        help="Scheduler uses embedding-backed candidate ordering",
     )
     bootstrap.add_argument(
         "--rerank-candidates",
         action="store_true",
-        help="Timer uses reranker-backed candidate ordering; implies --semantic-candidates",
+        help="Scheduler uses reranker-backed candidate ordering; implies --semantic-candidates",
     )
     bootstrap.add_argument(
         "--enable",
         dest="enable",
         action="store_true",
         default=True,
-        help="Enable and start the timer now (default)",
+        help="Enable and start the scheduler now (default)",
     )
     bootstrap.add_argument(
         "--no-enable",
         dest="enable",
         action="store_false",
-        help="Write timer units without enabling them",
+        help="Write scheduler files without enabling them",
     )
     bootstrap.add_argument(
         "--format", choices=["text", "json"], default="text", help="Output format"
@@ -272,61 +276,65 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
     )
     backfill.set_defaults(func=handle_cli)
 
-    install_auto = subs.add_parser("install-auto", help="Install a user systemd timer for auto-run")
-    install_auto.add_argument("--schedule", default="daily", help="systemd OnCalendar value or hourly/daily/weekly")
-    install_auto.add_argument("--skills-dir", help="Skills root for the timer command")
-    install_auto.add_argument("--proposal-only", action="store_true", help="Timer runs dry-run instead of applying low-risk updates")
+    install_auto = subs.add_parser("install-auto", help="Install a user scheduler for auto-run")
+    install_auto.add_argument(
+        "--schedule",
+        default="daily",
+        help="Scheduler cadence: hourly/daily/weekly; Linux also accepts systemd OnCalendar values",
+    )
+    install_auto.add_argument("--skills-dir", help="Skills root for the scheduler command")
+    install_auto.add_argument("--proposal-only", action="store_true", help="Scheduler runs dry-run instead of applying low-risk updates")
     install_auto.add_argument(
         "--protect-core-skills",
         dest="protect_core_skills",
         action="store_true",
         default=True,
-        help="Timer skips unattended writes to core Hermes/workflow skills (default)",
+        help="Scheduler skips unattended writes to core Hermes/workflow skills (default)",
     )
     install_auto.add_argument(
         "--no-protect-core-skills",
         dest="protect_core_skills",
         action="store_false",
-        help="Timer may write core skills; use only after explicit review",
+        help="Scheduler may write core skills; use only after explicit review",
     )
     install_auto.add_argument(
         "--allow-auto-apply-skill",
         action="append",
         default=[],
         metavar="PATTERN",
-        help="Timer auto-apply allowlist glob within the local agent-created source boundary; matching core skills are explicitly permitted",
+        help="Scheduler auto-apply allowlist glob within the local agent-created source boundary; matching core skills are explicitly permitted",
     )
     install_auto.add_argument(
         "--block-auto-apply-skill",
         action="append",
         default=[],
         metavar="PATTERN",
-        help="Timer auto-apply blocklist glob",
+        help="Scheduler auto-apply blocklist glob",
     )
     install_auto.add_argument(
         "--semantic-candidates",
         action="store_true",
-        help="Timer uses embedding-backed candidate ordering; opt-in because it may load models",
+        help="Scheduler uses embedding-backed candidate ordering; opt-in because it may load models",
     )
     install_auto.add_argument(
         "--rerank-candidates",
         action="store_true",
-        help="Timer uses reranker-backed candidate ordering; implies --semantic-candidates",
+        help="Scheduler uses reranker-backed candidate ordering; implies --semantic-candidates",
     )
     install_auto.add_argument(
         "--no-verify-skills",
         dest="verify_skills",
         action="store_false",
         default=True,
-        help="Disable the built-in post-apply SKILL.md validator in the timer",
+        help="Disable the built-in post-apply SKILL.md validator in the scheduler",
     )
-    install_auto.add_argument("--verify-command", help="Custom command to validate after each timer apply")
-    install_auto.add_argument("--verify-cwd", help="Working directory for timer verification command")
-    install_auto.add_argument("--enable", action="store_true", help="Enable and start the timer now")
+    install_auto.add_argument("--verify-command", help="Custom command to validate after each scheduler apply")
+    install_auto.add_argument("--verify-cwd", help="Working directory for scheduler verification command")
+    install_auto.add_argument("--enable", action="store_true", help="Enable and start the scheduler now")
     install_auto.set_defaults(func=handle_cli)
 
-    uninstall_auto = subs.add_parser("uninstall-auto", help="Remove the user systemd auto-run timer")
-    uninstall_auto.add_argument("--keep-enabled", action="store_true", help="Do not call systemctl disable --now before removing files")
+    uninstall_auto = subs.add_parser("uninstall-auto", help="Remove the user auto-run scheduler")
+    uninstall_auto.add_argument("--keep-enabled", action="store_true", help="Do not disable/unload scheduler before removing files")
     uninstall_auto.set_defaults(func=handle_cli)
 
     subparser.set_defaults(func=handle_cli)
@@ -352,7 +360,7 @@ def _format_bootstrap_result(result: dict, output_format: str = "text") -> str:
         "Hermes Curator Evolver bootstrap",
         f"✓ Backfilled {backfill.get('sessions_imported', 0)} session(s), "
         f"{backfill.get('tool_events_imported', 0)} tool event(s)",
-        f"✓ Timer installed: {timer.get('schedule')} "
+        f"✓ Scheduler installed: {timer.get('schedule')} "
         f"({'enabled' if timer.get('enabled') else 'not enabled'})",
         f"✓ Auto-apply policy: {timer.get('auto_apply_policy', 'local-agent-created-skills-only')}",
         "Next:",

@@ -85,8 +85,13 @@ Quick checks:
 
 ```bash
 hermes-curator-evolver status
+# Linux / systemd:
 systemctl --user list-timers 'hermes-curator-evolver*' --all --no-pager
+# macOS / launchd:
+launchctl list | grep hermes-curator-evolver || true
 ```
+
+`bootstrap` now installs the daily autorun with the native user scheduler: systemd user timers on Linux and a LaunchAgent plist at `~/Library/LaunchAgents/com.pingchesu.hermes-curator-evolver.auto.plist` on macOS. Use `--schedule hourly|daily|weekly` for portable cadences; custom systemd `OnCalendar` values remain Linux-only.
 
 If Hermes gateway was already running, restart it once so plugin hooks are loaded. For health checks, timer logs, model details, and uninstall steps, see [docs/after-install.md](docs/after-install.md).
 
@@ -99,7 +104,7 @@ If Hermes gateway was already running, restart it once so plugin hooks are loade
 ```mermaid
 flowchart LR
     S[Hermes sessions + tool calls] --> DB[(SQLite evidence)]
-    DB --> T[daily bootstrap timer]
+    DB --> T[daily bootstrap scheduler]
     T --> A[bounded notes to local agent-created skills]
     A -. bulky evidence .-> REF[references/ spillover]
     T -. skip .-> P[official / hub / external / pinned skills]
@@ -108,7 +113,7 @@ flowchart LR
 
 | User concern | Short answer |
 | --- | --- |
-| **Will it run by itself?** | Yes. `bootstrap` enables a daily user-level timer. |
+| **Will it run by itself?** | Yes. `bootstrap` enables a daily user-level scheduler: systemd on Linux, launchd on macOS. |
 | **Will it rewrite my skills?** | No. Autorun only updates a managed bounded block and spills bulky evidence to `references/`. |
 | **Will it touch official/team skills?** | No. Provenance gate skips bundled, hub, plugin, and `external_dirs` skills. |
 | **Can I inspect first?** | Yes. `auto-run --format json` is dry-run by default. |
@@ -153,7 +158,7 @@ Useful links for reviewers and community posts:
 
 - [docs/core-algorithm.md](docs/core-algorithm.md) — exact evidence, candidate-selection, semantic/rerank, and autorun algorithm.
 - [docs/architecture.md](docs/architecture.md) — one-page architecture and safety boundary.
-- [docs/after-install.md](docs/after-install.md) — what to expect after install, health checks, timers, and uninstall.
+- [docs/after-install.md](docs/after-install.md) — what to expect after install, health checks, scheduler logs, and uninstall.
 - [docs/hyperagents-design-notes.md](docs/hyperagents-design-notes.md) — clean-room design notes explaining why HyperAgents is *not* a dependency and which concepts (multi-variant candidates, staged verifier) are adapted.
 - [docs/reddit-launch.md](docs/reddit-launch.md) — recommended cadence and concise community-post drafts.
 - [docs/reddit-launch-kit.md](docs/reddit-launch-kit.md) — expanded subreddit-specific titles, replies, and disclosure notes.
@@ -237,7 +242,7 @@ If you want to inspect the behavior before installing, start here:
 - [Example artifacts](examples/) — synthetic report, proposal, bounded managed-block diff, and rollback manifest.
 - [Promotion readiness plan](docs/promotion-readiness-plan.md) — what changed to make the repo easier to evaluate publicly.
 - [Architecture notes](docs/architecture.md) — one-page data flow and safety boundary.
-- [Post-install guide](docs/after-install.md) — health checks, timer logs, model details, and uninstall steps.
+- [Post-install guide](docs/after-install.md) — health checks, scheduler logs, model details, and uninstall steps.
 
 ## Feedback wanted
 
@@ -325,7 +330,7 @@ hermes plugins disable curator-evolver
 hermes plugins uninstall curator-evolver   # alias: remove/rm
 ```
 
-If you enabled the optional auto-evolve timer, remove it first:
+If you enabled the optional auto-evolve scheduler, remove it first:
 
 ```bash
 hermes-curator-evolver uninstall-auto
@@ -393,7 +398,7 @@ export HERMES_CURATOR_EVOLVER_DB=/custom/path.sqlite
 - ✅ **v0.3** — candidate generation interface with optional embedding/reranker model plan.
 - ✅ **v0.4** — guarded apply with explicit approval, backup, verification, and rollback.
 - ✅ **v0.5** — explicit model execution paths: Hermes chat-model drafts, Qwen embedding candidate ranking, and bge reranking.
-- ✅ **v0.6** — plug-and-play `auto-run` + optional systemd timer for low-risk managed skill improvements without Hermes core changes.
+- ✅ **v0.6** — plug-and-play `auto-run` + optional native user scheduler for low-risk managed skill improvements without Hermes core changes.
 - ✅ **v0.7** — explicit `--semantic-candidates` / `--rerank-candidates` for model-assisted autorun candidate ordering.
 - ✅ **v0.8** — `backfill-sessions` for existing Hermes history, `CONTRIBUTING.md`, and GitHub Actions CI.
 - ✅ **v0.9** — provenance-safe autorun: only local agent-created skills can be auto-applied; bundled, hub, plugin, external, pinned, and unknown sources are skipped.

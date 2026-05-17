@@ -12,7 +12,7 @@ uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e ~/.hermes/plug
 hermes-curator-evolver bootstrap
 ```
 
-`bootstrap` combines the two noisy setup steps that used to be separate: it backfills recent sessions and installs/enables the daily timer. Use `bootstrap --semantic` only when you explicitly want embedding + rerank candidate ordering.
+`bootstrap` combines the two noisy setup steps that used to be separate: it backfills recent sessions and installs/enables the daily user scheduler. Linux uses a systemd user timer; macOS uses a launchd LaunchAgent. Use `bootstrap --semantic` only when you explicitly want embedding + rerank candidate ordering.
 
 After that:
 
@@ -21,12 +21,12 @@ After that:
 | Plugin clone | `~/.hermes/plugins/curator-evolver` exists. |
 | CLI entrypoint | `hermes-curator-evolver` is available in the Hermes Python environment. |
 | Evidence DB | `~/.hermes/plugins/curator-evolver/data/evidence.sqlite` exists and includes recent backfilled session evidence. |
-| User timer | `hermes-curator-evolver-auto.timer` runs daily. |
+| User scheduler | Linux: `hermes-curator-evolver-auto.timer` runs daily. macOS: `~/Library/LaunchAgents/com.pingchesu.hermes-curator-evolver.auto.plist` is loaded. |
 | Hermes core | Unmodified. The plugin is removable without patching Hermes Agent source code. |
 
 ## What autorun actually does
 
-Daily autorun is intentionally narrow. It learns from observed Hermes usage and only applies low-risk managed notes to local agent-created skills. Official/bundled skills, hub-installed skills, plugin-provided skills, and skills loaded from `skills.external_dirs` are analyzed and can appear in dry-run output, but unattended writes skip them. By default it is deterministic and model-free. If the user explicitly chooses `--semantic-candidates` / `--rerank-candidates`, autorun uses embedding/rerank only to reorder skills that already passed the evidence threshold. For the exact algorithm, see [core-algorithm.md](core-algorithm.md).
+Daily autorun is intentionally narrow. It learns from observed Hermes usage and only applies low-risk managed notes to local agent-created skills. Official/bundled skills, hub-installed skills, plugin-provided skills, and skills loaded from `skills.external_dirs` are analyzed and can appear in dry-run output, but unattended writes skip them. By default it is deterministic and model-free. If the user explicitly chooses `--semantic-candidates` / `--rerank-candidates`, autorun uses embedding/rerank only to reorder skills that already passed the evidence threshold. For portable scheduling use `--schedule hourly|daily|weekly`; custom systemd `OnCalendar` expressions are Linux-only because launchd does not understand them. For the exact algorithm, see [core-algorithm.md](core-algorithm.md).
 
 ```text
 Hermes sessions / tool calls / skill usage / optional historical backfill
@@ -105,18 +105,32 @@ hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --format json
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --semantic-candidates --rerank-candidates --format json
 ```
 
-Check the user timer:
+Check the user scheduler on Linux/systemd:
 
 ```bash
 systemctl --user status hermes-curator-evolver-auto.timer
 systemctl --user list-timers hermes-curator-evolver-auto.timer
 ```
 
-Run the timer job immediately for a one-off smoke test:
+Check the user scheduler on macOS/launchd:
+
+```bash
+launchctl list | grep hermes-curator-evolver || true
+plutil -lint ~/Library/LaunchAgents/com.pingchesu.hermes-curator-evolver.auto.plist
+```
+
+Run the scheduled job immediately for a one-off smoke test on Linux/systemd:
 
 ```bash
 systemctl --user start hermes-curator-evolver-auto.service
 journalctl --user -u hermes-curator-evolver-auto.service -n 100 --no-pager
+```
+
+Run the scheduled job immediately for a one-off smoke test on macOS/launchd:
+
+```bash
+launchctl kickstart -k gui/$(id -u)/com.pingchesu.hermes-curator-evolver.auto
+tail -n 100 ~/.hermes/plugins/curator-evolver/logs/auto-run.out.log ~/.hermes/plugins/curator-evolver/logs/auto-run.err.log
 ```
 
 ## Supported models
@@ -171,7 +185,7 @@ Important model boundaries:
 
 ## Stop or uninstall
 
-Stop and remove the autorun timer:
+Stop and remove the autorun scheduler:
 
 ```bash
 hermes-curator-evolver uninstall-auto

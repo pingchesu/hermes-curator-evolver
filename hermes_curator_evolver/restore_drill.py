@@ -375,7 +375,7 @@ def _check_scheduler(scheduler: dict[str, Any] | None) -> dict[str, Any]:
         check["reason"] = "no-scheduler-metadata"
         return check
     paths: dict[str, str] = {}
-    for key in ("service_path", "timer_path", "cron_path"):
+    for key in ("service_path", "timer_path", "plist_path", "cron_path"):
         value = scheduler.get(key)
         if value:
             paths[key] = str(value)

@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import hermes_curator_evolver.auto_evolve as auto_evolve
 from hermes_curator_evolver.auto_evolve import (
     AutoEvolveConfig,
     build_low_risk_skill_update,
@@ -9,6 +10,7 @@ from hermes_curator_evolver.auto_evolve import (
     install_auto_timer,
     run_auto_evolve,
     select_winning_variant,
+    uninstall_auto_timer,
 )
 from hermes_curator_evolver.guarded_apply import sha256_file
 from hermes_curator_evolver.storage import EvidenceStore
@@ -369,6 +371,60 @@ def test_install_auto_timer_can_opt_into_semantic_and_rerank_candidates(tmp_path
     assert "--rerank-candidates" in command
     assert "--semantic-candidates" in service_text
     assert "OnCalendar=daily" in timer_text
+
+
+def test_install_auto_timer_uses_launchd_on_macos(tmp_path, monkeypatch):
+    monkeypatch.setattr(auto_evolve.sys, "platform", "darwin")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+    result = install_auto_timer(
+        schedule="daily",
+        skills_dir=tmp_path / "skills",
+        enable=False,
+        rerank_candidates=True,
+    )
+
+    plist_path = Path(result["plist_path"])
+    plist_text = plist_path.read_text(encoding="utf-8")
+    assert result["scheduler"] == "launchd"
+    assert plist_path == tmp_path / "home" / "Library" / "LaunchAgents" / "com.pingchesu.hermes-curator-evolver.auto.plist"
+    assert result["service_path"] is None
+    assert result["timer_path"] is None
+    assert "<key>ProgramArguments</key>" in plist_text
+    assert "<string>--semantic-candidates</string>" in plist_text
+    assert "<string>--rerank-candidates</string>" in plist_text
+    assert "<key>StartCalendarInterval</key>" in plist_text
+    assert "<key>Hour</key>" in plist_text
+
+
+def test_install_auto_timer_launchd_hourly_uses_start_interval(tmp_path, monkeypatch):
+    monkeypatch.setattr(auto_evolve.sys, "platform", "darwin")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+    result = install_auto_timer(
+        schedule="hourly",
+        skills_dir=tmp_path / "skills",
+        apply_low_risk=False,
+        enable=False,
+    )
+
+    plist_text = Path(result["plist_path"]).read_text(encoding="utf-8")
+    assert result["schedule"] == "hourly"
+    assert result["auto_apply_policy"] == "dry-run-only"
+    assert "<key>StartInterval</key>" in plist_text
+    assert "<integer>3600</integer>" in plist_text
+    assert "--apply-low-risk" not in result["command"]
+
+
+def test_uninstall_auto_timer_removes_launchd_plist_on_macos(tmp_path, monkeypatch):
+    monkeypatch.setattr(auto_evolve.sys, "platform", "darwin")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    installed = install_auto_timer(schedule="daily", skills_dir=tmp_path / "skills", enable=False)
+
+    result = uninstall_auto_timer(disable=False)
+
+    assert installed["plist_path"] in result["removed"]
+    assert not Path(installed["plist_path"]).exists()
 
 
 def test_auto_evolve_auto_apply_skips_core_skills_by_default_but_applies_non_core(tmp_path):

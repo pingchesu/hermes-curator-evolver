@@ -122,7 +122,7 @@ flowchart LR
 
 The default experience is designed to be inspectable before it is writable:
 
-- **Read-only first:** `status`, `report`, `analyze`, `candidates`, `propose`, `verify`, and default `auto-run` do not mutate skills.
+- **Read-only first:** `status`, `report`, `analyze`, `candidates`, `candidates-mine`, `candidates-list`, `propose`, `verify`, and default `auto-run` do not mutate skills.
 - **No blind model dependency:** the default bootstrap path is model-free; model-assisted proposal drafting and semantic/rerank ordering require explicit opt-in flags.
 - **Narrow unattended writes:** low-risk autorun writes only a managed bounded notes block, and only after both `--apply-low-risk` and `--approve-auto-apply`.
 - **Size guardrails:** `SKILL.md` updates target a 90k soft cap, spill bulky evidence into `references/`, and skip unattended writes when the target skill is already over the 100k hard cap.
@@ -130,6 +130,30 @@ The default experience is designed to be inspectable before it is writable:
 - **Rollback is concrete:** guarded apply records backups and manifests so you can restore exact prior content.
 
 For a quick visual walkthrough, see [docs/demo-script.md](docs/demo-script.md). For synthetic output examples, see [examples/](examples/).
+
+### Read-only session + skill candidate review queue
+
+`candidates-mine` turns already-redacted evidence packets into a local SQLite review queue. It classifies each record as `memory`, `skill_update`, `skill_new`, `replay_benchmark`, or `ignore`, but it never writes to Hermes memory, never edits skills, and never enables auto-apply. Every row is pending human review by default.
+
+```bash
+cat > /tmp/redacted-evidence.jsonl <<'EOF'
+{"text":"durable memory 只存精簡宣告事實；流程/步驟/SOP 進 skill；不存 task progress / PR / SHA / 短期狀態","evidence_ref":"session:policy"}
+{"text":"Workflow: 1. First run `ingest`. 2. Then run `mine`. 3. Finally review.","evidence_ref":"session:workflow"}
+{"text":"{\"exit_code\":1,\"output\":\"remote: Repository not found\"}","evidence_ref":"session:failure","tool_name":"terminal"}
+EOF
+
+hermes-curator-evolver candidates-mine \
+  --input-jsonl /tmp/redacted-evidence.jsonl \
+  --queue-db /tmp/curator-review.sqlite \
+  --format markdown
+
+hermes-curator-evolver candidates-list \
+  --queue-db /tmp/curator-review.sqlite \
+  --status pending \
+  --format json
+```
+
+The miner is intentionally conservative: unknown cases become `ignore`, raw `read_file`/source dumps are suppressed as `source_dump`, near-cap `SKILL.md` evidence is marked `direct_append_allowed=false`, and the queue refuses any candidate with `auto_apply_allowed=true` even if a caller bypasses the normal `Candidate` constructor.
 
 ## Why this exists
 

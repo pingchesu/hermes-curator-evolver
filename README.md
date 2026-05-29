@@ -22,13 +22,29 @@
 [![Safety](https://img.shields.io/badge/v0.10-bootstrap%20%2B%20safe%20autorun-22c55e?style=flat-square)](#safety-model)
 [![License](https://img.shields.io/badge/License-MIT-green?style=flat-square)](./LICENSE)
 
-| 📚 Session evidence | 📥 Backfill today | 🧠 Optional semantic search | 🛡️ Guarded automation |
+| 📚 Session evidence | 🧠 Memory/skill candidates | 🧪 `--variants` dry-run | 🛡️ Guarded automation |
 |:-:|:-:|:-:|:-:|
-| Learn from real Hermes work | Import old `session_*.json` history | Embedding + rerank only when selected | Bounded notes, reference spillover, rollback |
+| Learn from real Hermes work | Mine sessions into a review queue | Compare bounded deterministic variants | Bounded notes, reference spillover, rollback |
 
 </div>
 
 ---
+
+## Latest update: variants + session mining
+
+Two new reviewer-first paths are now visible up front:
+
+- **`auto-run --variants N`** generates up to four deterministic, model-free bounded update variants, scores them with local safety/quality signals, and selects one winner. The default remains `--variants 1`, so existing dry runs stay stable.
+- **`candidates-mine` + `candidates-list`** turns already-redacted session evidence into a local SQLite review queue. It classifies findings as `memory`, `skill_update`, `skill_new`, `replay_benchmark`, or `ignore` so a human can decide what should become durable memory, a skill patch, a new skill, or an evaluation case. It does not write Hermes memory, edit skills, or enable auto-apply.
+
+```bash
+# Compare bounded variants without writing files
+hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --variants 3 --format json
+
+# Mine session-derived evidence into a human-review queue
+hermes-curator-evolver candidates-mine --input-jsonl redacted-evidence.jsonl --queue-db curator-review.sqlite
+hermes-curator-evolver candidates-list --queue-db curator-review.sqlite --status pending --format json
+```
 
 ## Contents
 
@@ -220,6 +236,7 @@ flowchart LR
 | v0.10 | None by default | One-command setup and clearer public README. | `bootstrap` backfills sessions and installs/enables autorun; `bootstrap --semantic` is explicit model opt-in. |
 | v0.11 | None | Size-bounded unattended auto-apply. | Keeps `SKILL.md` under the 100k tool cap by targeting a 90k soft cap, spilling bulky evidence into `references/`, and skipping already-over-hard-cap skills. |
 | v0.12 | None by default | Clean-room multi-variant candidate selection and staged verification inspired by HyperAgents concepts. | `--variants N` is deterministic/model-free; `--staged-verify` runs local structural checks before optional user-supplied verify commands. No HyperAgents dependency or model-generated code execution. |
+| v0.13 | None by default | Session-content mining for memory/skill/replay candidates. | `candidates-mine` classifies redacted evidence into a local SQLite review queue, then `candidates-list` lets reviewers decide whether an item should become memory, a skill update, a new skill, a replay benchmark, or be ignored. It is read-only and never writes memory or skills. |
 
 ## Safety model
 
@@ -428,6 +445,8 @@ export HERMES_CURATOR_EVOLVER_DB=/custom/path.sqlite
 - ✅ **v0.9** — provenance-safe autorun: only local agent-created skills can be auto-applied; bundled, hub, plugin, external, pinned, and unknown sources are skipped.
 - ✅ **v0.10** — `bootstrap` one-command setup plus a shorter, visual quick start.
 - ✅ **v0.11** — size-bounded autorun: target a 90k `SKILL.md` soft cap, spill bulky evidence into `references/`, and skip already-over-hard-cap skills.
+- ✅ **v0.12** — deterministic `--variants N`, staged verification, and restore-drill gating for safer autorun choices.
+- ✅ **v0.13** — read-only session mining into a human-review queue for `memory`, `skill_update`, `skill_new`, `replay_benchmark`, or `ignore` decisions.
 
 ---
 

@@ -14,6 +14,7 @@ from .auto_evolve import (
     uninstall_auto_timer,
 )
 from .backfill import backfill_sessions
+from .candidates import mine_candidates
 from .guarded_apply import apply_guarded_patch, rollback_guarded_patch
 from .proposals import (
     build_model_drafted_proposal,
@@ -27,6 +28,7 @@ from .restore_drill import (
     format_drill_report,
     run_restore_drill,
 )
+from .review_queue import ReviewQueue
 from .semantic import find_skill_candidates
 from .storage import EvidenceStore
 from .verifier import verify_proposal
@@ -98,6 +100,55 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
         "--format", choices=["text", "json"], default="text", help="Output format"
     )
     candidates.set_defaults(func=handle_cli)
+
+    candidates_mine = subs.add_parser(
+        "candidates-mine",
+        help="Read-only mine candidates from a redacted JSONL packet into a review queue",
+    )
+    candidates_mine.add_argument(
+        "--input-jsonl", required=True, help="Path to redacted evidence JSONL file"
+    )
+    candidates_mine.add_argument(
+        "--queue-db", required=True, help="SQLite review queue database path"
+    )
+    candidates_mine.add_argument(
+        "--format",
+        choices=["json", "markdown"],
+        default="json",
+        help="Output format",
+    )
+    candidates_mine.set_defaults(func=handle_cli)
+
+    candidates_list = subs.add_parser(
+        "candidates-list",
+        help="List candidates from a review queue (read-only)",
+    )
+    candidates_list.add_argument(
+        "--queue-db", required=True, help="SQLite review queue database path"
+    )
+    candidates_list.add_argument(
+        "--status",
+        choices=["pending", "accepted", "rejected"],
+        help="Filter by status",
+    )
+    candidates_list.add_argument(
+        "--candidate-type",
+        choices=[
+            "memory",
+            "skill_update",
+            "skill_new",
+            "replay_benchmark",
+            "ignore",
+        ],
+        help="Filter by candidate type",
+    )
+    candidates_list.add_argument(
+        "--format",
+        choices=["json", "markdown"],
+        default="json",
+        help="Output format",
+    )
+    candidates_list.set_defaults(func=handle_cli)
 
     apply_cmd = subs.add_parser("apply", help="Apply reviewed content with guardrails")
     apply_cmd.add_argument("--target", required=True, help="Target file to replace")
@@ -406,6 +457,119 @@ def _run_bootstrap(values: dict) -> dict:
     }
 
 
+def _load_jsonl_records(path: str | Path) -> list[dict]:
+    records: list[dict] = []
+    text = Path(path).read_text(encoding="utf-8")
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        records.append(json.loads(line))
+    return records
+
+
+def _candidate_to_payload(candidate) -> dict:
+    return {
+        "id": candidate.id,
+        "candidate_type": candidate.candidate_type,
+        "title": candidate.title,
+        "rationale": candidate.rationale,
+        "confidence": float(candidate.confidence),
+        "evidence_refs": list(candidate.evidence_refs),
+        "target_skill": candidate.target_skill,
+        "auto_apply_allowed": bool(candidate.auto_apply_allowed),
+        "requires_human_review": bool(candidate.requires_human_review),
+        "metadata": dict(candidate.metadata or {}),
+    }
+
+
+def _run_candidates_mine(*, input_jsonl: str, queue_db: str) -> dict:
+    records = _load_jsonl_records(input_jsonl)
+    queue = ReviewQueue(queue_db)
+    payloads: list[dict] = []
+    inserted = 0
+    duplicates = 0
+    for candidate in mine_candidates(records):
+        payload = _candidate_to_payload(candidate)
+        payload["enqueued"] = queue.enqueue(candidate)
+        if payload["enqueued"]:
+            inserted += 1
+        else:
+            duplicates += 1
+        payloads.append(payload)
+    return {
+        "schema_version": "0.1",
+        "queue_db": str(Path(queue_db).resolve()),
+        "input_jsonl": str(Path(input_jsonl).resolve()),
+        "count": len(payloads),
+        "inserted": inserted,
+        "duplicates": duplicates,
+        "candidates": payloads,
+    }
+
+
+def _run_candidates_list(
+    *,
+    queue_db: str,
+    status: str | None,
+    candidate_type: str | None,
+) -> dict:
+    queue = ReviewQueue(queue_db, create=False)
+    rows = queue.list_candidates(status=status, candidate_type=candidate_type)
+
+    return {
+        "schema_version": "0.1",
+        "queue_db": str(Path(queue_db).resolve()),
+        "status_filter": status,
+        "candidate_type_filter": candidate_type,
+        "count": len(rows),
+        "candidates": rows,
+    }
+
+
+def _format_candidates_payload(result: dict, *, output_format: str) -> str:
+    if output_format == "json":
+        return json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True)
+    lines = [
+        "# Curator Evolver Candidates",
+        "",
+        "_Read-only review queue. No files were changed and human review is required._",
+        "",
+        f"- Queue: `{result.get('queue_db')}`",
+        f"- Count: {result.get('count', 0)}",
+    ]
+    if "inserted" in result:
+        lines.append(f"- Newly inserted: {result['inserted']}")
+        lines.append(f"- Duplicates ignored: {result['duplicates']}")
+    if result.get("status_filter"):
+        lines.append(f"- Status filter: {result['status_filter']}")
+    if result.get("candidate_type_filter"):
+        lines.append(f"- Type filter: {result['candidate_type_filter']}")
+    lines.append("")
+    for item in result.get("candidates", []) or []:
+        lines.append(f"## {item.get('title') or item.get('id')}")
+        lines.append(f"- type: `{item.get('candidate_type')}`")
+        if "status" in item:
+            lines.append(f"- status: `{item.get('status')}`")
+        lines.append(
+            f"- requires human review: {bool(item.get('requires_human_review', True))}"
+        )
+        lines.append(
+            f"- auto-apply allowed: {bool(item.get('auto_apply_allowed', False))}"
+        )
+        if item.get("target_skill"):
+            lines.append(f"- target skill: `{item['target_skill']}`")
+        lines.append(f"- confidence: {float(item.get('confidence', 0)):.2f}")
+        rationale = (item.get("rationale") or "").strip()
+        if rationale:
+            lines.append(f"- rationale: {rationale}")
+        evidence = item.get("evidence_refs") or []
+        if evidence:
+            lines.append(f"- evidence: {', '.join(str(e) for e in evidence)}")
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
 def handle_cli(args: argparse.Namespace) -> None:
     """Dispatch CLI commands."""
     values = vars(args)
@@ -462,6 +626,23 @@ def handle_cli(args: argparse.Namespace) -> None:
             print(f"Verifier: {status}")
             if verdict["failures"]:
                 print("Failures: " + ", ".join(verdict["failures"]))
+        return
+
+    if command == "candidates-mine":
+        result = _run_candidates_mine(
+            input_jsonl=values["input_jsonl"],
+            queue_db=values["queue_db"],
+        )
+        print(_format_candidates_payload(result, output_format=values.get("format") or "json"))
+        return
+
+    if command == "candidates-list":
+        result = _run_candidates_list(
+            queue_db=values["queue_db"],
+            status=values.get("status"),
+            candidate_type=values.get("candidate_type"),
+        )
+        print(_format_candidates_payload(result, output_format=values.get("format") or "json"))
         return
 
     if command == "candidates":

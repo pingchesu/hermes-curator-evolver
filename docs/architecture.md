@@ -43,6 +43,8 @@ The safety rule is simple: everything before `Apply` is non-mutating; `Apply` re
 | `curator-evolver` plugin | Registers observer hooks, a report tool, a slash command, and CLI entry points. |
 | SQLite evidence store | Keeps compact local evidence under `~/.hermes/plugins/curator-evolver/data/evidence.sqlite`. |
 | Reports | Shows which skills/tools produced useful or problematic evidence. |
+| Skill audit | Read-only structural scan for oversized `SKILL.md`, missing `references/`, very long inline lines, and executable support files. |
+| Merge check | Read-only source→umbrella consolidation guard that blocks merges which would drop executable capacity such as `scripts/` or `.py`/`.sh` support files. |
 | Candidate search | Finds likely related skills with lexical search by default; semantic models are opt-in only. |
 | Proposal | Produces dry-run review artifacts grounded in evidence. |
 | Bootstrap | One-command setup that backfills recent sessions and installs/enables the daily timer. |
@@ -66,6 +68,7 @@ The safety rule is simple: everything before `Apply` is non-mutating; `Apply` re
 | v0.10 | None by default | One-command `bootstrap` setup and compressed quick start. | `bootstrap` backfills sessions and installs/enables the timer; `bootstrap --semantic` is explicit model opt-in. |
 | v0.11 | None | Size-bounded auto-apply preparation. | Targets a 90k `SKILL.md` soft cap, spills bulky evidence into `references/`, and skips already-over-100k skills. |
 | v0.12 | None by default | Clean-room multi-variant candidate selection and staged verification inspired by HyperAgents concepts. | `--variants N` is deterministic/model-free; `--staged-verify` runs local structural checks before optional user-supplied verify commands. No HyperAgents dependency or model-generated code execution. |
+| v0.14 | None | Skill structure audit and executable-capacity merge checks. | Read-only commands; no model call and no skill mutation. |
 
 Notes:
 
@@ -100,6 +103,8 @@ flowchart LR
 Hard rules:
 
 - Evidence/report/proposal/candidate commands do not mutate skills.
+- `audit-skills` and `merge-check` are read-only structural checks. They exist to provide deterministic facts before any model or human consolidates skills.
+- A source skill with executable capacity (`scripts/`, executable files, or `.py`/`.sh`/similar support files) must not be archived into a target that lacks equivalent executable support directories; use `merge-check` and preserve or demote support files explicitly.
 - Candidate search is advisory.
 - Semantic model execution is opt-in: `--semantic` is plan-only; `--execute-semantic` loads embeddings; `--rerank` loads the reranker.
 - Auto-run model-assisted candidate ordering is opt-in: `--semantic-candidates` loads embeddings; `--rerank-candidates` loads the reranker and implies semantic candidate ordering.
@@ -125,6 +130,8 @@ hermes-curator-evolver propose --skill hermes-agent --skill-file ./SKILL.md --dr
 hermes-curator-evolver verify --proposal-file proposal.json --skill hermes-agent
 hermes-curator-evolver candidates --query "gateway restart" --skills-dir ~/.hermes/skills
 hermes-curator-evolver candidates --query "gateway restart" --skills-dir ~/.hermes/skills --execute-semantic --rerank --format json
+hermes-curator-evolver audit-skills --skills-dir ~/.hermes/skills --format json
+hermes-curator-evolver merge-check --source ~/.hermes/skills/sangfor-devices --target ~/.hermes/skills/infrastructure --format json
 hermes-curator-evolver apply --target ./SKILL.md --content-file ./reviewed-SKILL.md --expected-sha256 <sha> --approve
 hermes-curator-evolver rollback --manifest .curator-evolver-backups/<timestamp>/manifest.json
 hermes-curator-evolver restore-drill --manifest .curator-evolver-backups/<timestamp>/manifest.json --format json

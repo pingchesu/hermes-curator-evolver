@@ -30,6 +30,13 @@ from .restore_drill import (
 )
 from .review_queue import ReviewQueue
 from .semantic import find_skill_candidates
+from .skill_audit import (
+    audit_skill_library,
+    check_consolidation_capacity,
+    format_consolidation_check_markdown,
+    format_json as format_audit_json,
+    format_skill_audit_markdown,
+)
 from .storage import EvidenceStore
 from .verifier import verify_proposal
 
@@ -55,6 +62,32 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
         "--format", choices=["markdown", "json"], default="markdown", help="Output format"
     )
     analyze.set_defaults(func=handle_cli)
+
+    audit_skills = subs.add_parser(
+        "audit-skills",
+        help="Read-only audit for SKILL.md token bloat, missing references, and executable capacity",
+    )
+    audit_skills.add_argument("--skills-dir", required=True, help="Directory containing SKILL.md files")
+    audit_skills.add_argument(
+        "--include-archive",
+        action="store_true",
+        help="Include .archive skill trees (excluded by default to match active skill discovery)",
+    )
+    audit_skills.add_argument(
+        "--format", choices=["markdown", "json"], default="markdown", help="Output format"
+    )
+    audit_skills.set_defaults(func=handle_cli)
+
+    merge_check = subs.add_parser(
+        "merge-check",
+        help="Read-only check that a proposed source→umbrella skill consolidation preserves executable capacity",
+    )
+    merge_check.add_argument("--source", required=True, help="Source skill directory containing SKILL.md")
+    merge_check.add_argument("--target", required=True, help="Target/umbrella skill directory containing SKILL.md")
+    merge_check.add_argument(
+        "--format", choices=["markdown", "json"], default="markdown", help="Output format"
+    )
+    merge_check.set_defaults(func=handle_cli)
 
     propose = subs.add_parser("propose", help="Generate a dry-run skill proposal")
     propose.add_argument("--skill", required=True, help="Exact skill name")
@@ -593,6 +626,25 @@ def handle_cli(args: argparse.Namespace) -> None:
             print(format_json_report(report))
         else:
             print(format_markdown_report(report))
+        return
+
+    if command == "audit-skills":
+        report = audit_skill_library(
+            values["skills_dir"],
+            include_archive=bool(values.get("include_archive")),
+        )
+        if values.get("format") == "json":
+            print(format_audit_json(report))
+        else:
+            print(format_skill_audit_markdown(report))
+        return
+
+    if command == "merge-check":
+        check = check_consolidation_capacity(values["source"], values["target"])
+        if values.get("format") == "json":
+            print(format_audit_json(check))
+        else:
+            print(format_consolidation_check_markdown(check))
         return
 
     if command == "propose":

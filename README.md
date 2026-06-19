@@ -139,6 +139,7 @@ flowchart LR
 The default experience is designed to be inspectable before it is writable:
 
 - **Read-only first:** `status`, `report`, `analyze`, `candidates`, `candidates-mine`, `candidates-list`, `propose`, `verify`, and default `auto-run` do not mutate skills.
+- **Structure-aware before merge:** `audit-skills` reports token-heavy `SKILL.md` files, missing `references/` spillover, long-line inlining, and executable support files. `merge-check` blocks source→umbrella consolidations that would drop `scripts/` or executable support capacity.
 - **No blind model dependency:** the default bootstrap path is model-free; model-assisted proposal drafting and semantic/rerank ordering require explicit opt-in flags.
 - **Narrow unattended writes:** low-risk autorun writes only a managed bounded notes block, and only after both `--apply-low-risk` and `--approve-auto-apply`.
 - **Size guardrails:** `SKILL.md` updates target a 90k soft cap, spill bulky evidence into `references/`, and skip unattended writes when the target skill is already over the 100k hard cap.
@@ -323,6 +324,10 @@ hermes-curator-evolver candidates --query "中文 mixed agent skill" --skills-di
 hermes-curator-evolver candidates --query "中文 mixed agent skill" --skills-dir ~/.hermes/skills --execute-semantic --format json
 hermes-curator-evolver candidates --query "中文 mixed agent skill" --skills-dir ~/.hermes/skills --execute-semantic --rerank --format json
 
+# Skill structure audit and consolidation guardrails
+hermes-curator-evolver audit-skills --skills-dir ~/.hermes/skills --format json
+hermes-curator-evolver merge-check --source ~/.hermes/skills/sangfor-devices --target ~/.hermes/skills/infrastructure --format json
+
 # Guarded apply
 sha256sum ./SKILL.md
 hermes-curator-evolver apply \
@@ -448,6 +453,7 @@ export HERMES_CURATOR_EVOLVER_DB=/custom/path.sqlite
 - ✅ **v0.11** — size-bounded autorun: target a 90k `SKILL.md` soft cap, spill bulky evidence into `references/`, and skip already-over-hard-cap skills.
 - ✅ **v0.12** — deterministic `--variants N`, staged verification, and restore-drill gating for safer autorun choices.
 - ✅ **v0.13** — read-only session mining into a human-review queue for `memory`, `skill_update`, `skill_new`, `replay_benchmark`, or `ignore` decisions.
+- ✅ **v0.14** — read-only skill structure audit plus executable-capacity merge checks so large skills are reference-split and script-bearing skills are not consolidated into umbrellas that cannot preserve automation.
 
 ---
 

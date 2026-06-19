@@ -30,6 +30,22 @@ def test_standalone_cli_parser_accepts_roadmap_commands():
         "12",
     ])
     verify = parser.parse_args(["verify", "--proposal-file", "proposal.json"])
+    audit_skills = parser.parse_args([
+        "audit-skills",
+        "--skills-dir",
+        "skills",
+        "--format",
+        "json",
+    ])
+    merge_check = parser.parse_args([
+        "merge-check",
+        "--source",
+        "skills/sangfor-devices",
+        "--target",
+        "skills/infrastructure",
+        "--format",
+        "json",
+    ])
     candidates = parser.parse_args([
         "candidates",
         "--query",
@@ -107,6 +123,11 @@ def test_standalone_cli_parser_accepts_roadmap_commands():
     assert propose.draft_with_model is True
     assert propose.model_timeout == 12
     assert verify.curator_evolver_command == "verify"
+    assert audit_skills.curator_evolver_command == "audit-skills"
+    assert audit_skills.skills_dir == "skills"
+    assert merge_check.curator_evolver_command == "merge-check"
+    assert merge_check.source == "skills/sangfor-devices"
+    assert merge_check.target == "skills/infrastructure"
     assert candidates.curator_evolver_command == "candidates"
     assert candidates.semantic is True
     assert candidates.execute_semantic is True

@@ -73,16 +73,18 @@ Autorun does **not** rewrite whole skills, delete existing content, change Herme
 Plugin hooks collect evidence after the plugin is enabled. If the user already has existing Hermes transcripts, import them once:
 
 ```bash
-hermes-curator-evolver backfill-sessions --sessions-dir ~/.hermes/sessions --days 30 --format json
+hermes-curator-evolver backfill-sessions --days 30 --format json
 ```
 
-For a low-cost check, inspect only the newest files:
+The default source is the active profile's `<HERMES_HOME>/state.db`, opened through Hermes `SessionDB(read_only=True)`. Hermes resolves the home with `get_hermes_home()`—including `%LOCALAPPDATA%\hermes` on Windows—and honors `HERMES_HOME`. To inspect only the newest sessions:
 
 ```bash
-hermes-curator-evolver backfill-sessions --sessions-dir ~/.hermes/sessions --days 7 --limit 50 --format json
+hermes-curator-evolver backfill-sessions --days 7 --limit 50 --format json
 ```
 
-Backfill records parseable tool calls, user/assistant turns, and session completion markers into the same local SQLite evidence DB. It is duplicate-safe for repeated runs against the same session files, and it does not mutate skills by itself. Run `auto-run --format json` afterward to preview newly eligible skills.
+Use `--state-db /path/to/state.db` to override the current database, or `--sessions-dir /path/to/legacy/sessions` for old `session_*.json` exports. The options are mutually exclusive. `request_dump_*.json` files are debug request snapshots and are not imported as sessions.
+
+Backfill records parseable tool calls, user/assistant turns, and completed-session markers into the same local SQLite evidence DB. It is duplicate-safe for repeated runs and does not mutate skills by itself. Run `auto-run --format json` afterward to preview newly eligible skills.
 
 ## Health checks
 

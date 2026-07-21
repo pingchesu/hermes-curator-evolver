@@ -1,7 +1,7 @@
 import json
 
 from hermes_curator_evolver.__main__ import build_parser
-from hermes_curator_evolver.cli import handle_cli
+from hermes_curator_evolver.cli import _format_bootstrap_result, handle_cli
 
 
 def test_standalone_cli_parser_accepts_report_command():
@@ -108,8 +108,8 @@ def test_standalone_cli_parser_accepts_roadmap_commands():
     ])
     backfill = parser.parse_args([
         "backfill-sessions",
-        "--sessions-dir",
-        "sessions",
+        "--state-db",
+        "state.db",
         "--days",
         "30",
         "--limit",
@@ -160,7 +160,7 @@ def test_standalone_cli_parser_accepts_roadmap_commands():
     assert bootstrap.enable is True
     assert bootstrap.format == "json"
     assert backfill.curator_evolver_command == "backfill-sessions"
-    assert backfill.sessions_dir == "sessions"
+    assert backfill.state_db == "state.db"
     assert backfill.days == 30
     assert backfill.limit == 10
     assert backfill.format == "json"
@@ -171,8 +171,13 @@ def test_bootstrap_command_runs_backfill_and_installs_auto_timer(monkeypatch, ca
     parser = build_parser()
     calls = {}
 
-    def fake_backfill_sessions(*, sessions_dir, days, limit=None):
-        calls["backfill"] = {"sessions_dir": sessions_dir, "days": days, "limit": limit}
+    def fake_backfill_sessions(*, sessions_dir, state_db, days, limit=None):
+        calls["backfill"] = {
+            "sessions_dir": sessions_dir,
+            "state_db": state_db,
+            "days": days,
+            "limit": limit,
+        }
         return {
             "sessions_dir": sessions_dir,
             "sessions_seen": 5,
@@ -220,9 +225,33 @@ def test_bootstrap_command_runs_backfill_and_installs_auto_timer(monkeypatch, ca
     assert payload["backfill"]["sessions_imported"] == 4
     assert payload["auto_timer"]["auto_apply_policy"] == "local-agent-created-skills-only"
     assert payload["next_steps"][0].startswith("Restart Hermes gateway")
-    assert calls["backfill"] == {"sessions_dir": "sessions", "days": 14, "limit": None}
+    assert calls["backfill"] == {
+        "sessions_dir": "sessions",
+        "state_db": None,
+        "days": 14,
+        "limit": None,
+    }
     assert calls["install_auto"]["schedule"] == "hourly"
     assert calls["install_auto"]["skills_dir"] == "skills"
     assert calls["install_auto"]["enable"] is True
     assert calls["install_auto"]["semantic_candidates"] is True
     assert calls["install_auto"]["rerank_candidates"] is True
+
+
+def test_bootstrap_text_surfaces_state_db_read_failure():
+    text = _format_bootstrap_result(
+        {
+            "backfill": {
+                "source_path": "C:/Users/test/AppData/Local/hermes/state.db",
+                "source_error": "RuntimeError: read-only open failed",
+            },
+            "auto_timer": {
+                "schedule": "daily",
+                "enabled": True,
+                "auto_apply_policy": "local-agent-created-skills-only",
+            },
+            "next_steps": [],
+        }
+    )
+
+    assert "⚠ Backfill source failed: RuntimeError: read-only open failed" in text

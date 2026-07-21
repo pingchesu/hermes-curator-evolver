@@ -57,6 +57,15 @@ slack:
     assert "business-zero-ai-event-triage" in discovered
 
 
+def test_auto_evolve_default_paths_follow_active_hermes_home(tmp_path, monkeypatch):
+    hermes_home = tmp_path / "AppData" / "Local" / "hermes"
+    monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+    assert auto_evolve._default_skills_dir() == hermes_home / "skills"
+    assert auto_evolve._default_hermes_config_path() == hermes_home / "config.yaml"
+    assert auto_evolve._default_backup_dir() == hermes_home / "plugins" / "curator-evolver" / "backups"
+
+
 def test_auto_evolve_protects_channel_bound_skills_from_auto_apply(tmp_path):
     db = tmp_path / "evidence.sqlite"
     store = EvidenceStore(db)
@@ -490,6 +499,7 @@ def test_install_auto_timer_can_opt_into_semantic_and_rerank_candidates(tmp_path
 def test_install_auto_timer_uses_launchd_on_macos(tmp_path, monkeypatch):
     monkeypatch.setattr(auto_evolve.sys, "platform", "darwin")
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes-profile"))
 
     result = install_auto_timer(
         schedule="daily",
@@ -509,6 +519,7 @@ def test_install_auto_timer_uses_launchd_on_macos(tmp_path, monkeypatch):
     assert "<string>--rerank-candidates</string>" in plist_text
     assert "<key>StartCalendarInterval</key>" in plist_text
     assert "<key>Hour</key>" in plist_text
+    assert str(tmp_path / "hermes-profile" / "plugins" / "curator-evolver" / "logs") in plist_text
 
 
 def test_install_auto_timer_launchd_hourly_uses_start_interval(tmp_path, monkeypatch):

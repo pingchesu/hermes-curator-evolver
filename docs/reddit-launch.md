@@ -33,7 +33,7 @@ The goal is to help Hermes skills improve from actual usage without blindly rewr
 What it does:
 
 - collects local Hermes session/tool-call evidence
-- backfills existing `session_*.json` history
+- backfills current Hermes `state.db` history read-only, with legacy `session_*.json` compatibility
 - ranks candidate skills for improvement
 - generates dry-run proposals and evidence reports
 - applies only guarded, bounded updates in the low-risk path

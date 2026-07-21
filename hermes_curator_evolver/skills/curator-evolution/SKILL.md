@@ -19,7 +19,7 @@ Hermes Curator Evolver starts from evidence and keeps mutation guarded. Reports 
 4. A single failure is not enough evidence to rewrite a skill.
 5. If the skill was correct but the agent ignored it, improve triggers/descriptions only when evidence repeats.
 6. Candidate search is advisory; embedding/reranker models only find candidates and do not decide edits.
-7. `backfill-sessions` can import existing Hermes `session_*.json` transcripts into evidence; it is model-free and does not mutate skills.
+7. `backfill-sessions` reads current Hermes `state.db` sessions through the read-only `SessionDB` API and retains explicit legacy `session_*.json` support; it is model-free and does not mutate skills.
 8. `auto-run --semantic-candidates` and `--rerank-candidates` are explicit opt-ins that only reorder evidence-eligible candidates.
 9. Guarded apply requires approval, backup, verifier/validation pass, and rollback.
 10. `auto-run` mutates only when both `--apply-low-risk` and `--approve-auto-apply` are set.
@@ -33,7 +33,7 @@ Hermes Curator Evolver starts from evidence and keeps mutation guarded. Reports 
 - Run `hermes-curator-evolver bootstrap` for the default one-command setup: backfill recent sessions and enable the daily safe autorun scheduler.
 - Run `hermes-curator-evolver bootstrap --semantic` only when the user explicitly wants model-assisted scheduler candidate ordering.
 - Run `hermes-curator-evolver report --days 7` for evidence.
-- Run `hermes-curator-evolver backfill-sessions --sessions-dir ~/.hermes/sessions --days 30 --format json` once when existing Hermes sessions should seed evidence.
+- Run `hermes-curator-evolver backfill-sessions --days 30 --format json` once when existing Hermes sessions should seed evidence. Use `--sessions-dir` only for legacy `session_*.json` exports.
 - Run `hermes-curator-evolver propose --skill <name> --format json` for a dry-run proposal.
 - Run `hermes-curator-evolver verify --proposal-file <proposal.json>` before considering apply.
 - Use `hermes-curator-evolver candidates --query <text> --skills-dir <dir>` for dependency-free lexical candidate search.

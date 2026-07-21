@@ -10,7 +10,7 @@ This is a practical launch kit for sharing Hermes Curator Evolver without overse
 
 **What makes it different**
 
-- It is built around real agent usage evidence: skill loads, tool calls, session endings, and optional historical `session_*.json` backfill.
+- It is built around real agent usage evidence: skill loads, tool calls, session endings, and read-only historical `state.db` backfill with legacy JSON compatibility.
 - It is conservative by default: reports/proposals are dry-run, model execution is opt-in, and unattended writes are limited to bounded managed blocks with reference spillover for bulky evidence.
 - It protects shared or upstream-owned skills: bundled, hub-installed, plugin-provided, external-dir, pinned, and unknown-source skills are skipped for unattended writes.
 - It treats embeddings/rerankers as ranking aids, not as edit authority. Default autorun remains deterministic and model-free.
@@ -55,7 +55,7 @@ The problem I wanted to solve: Hermes skills become operational memory, but main
 What the plugin does:
 
 - records compact local evidence from Hermes sessions/tool calls/skill usage;
-- can backfill old `session_*.json` transcripts;
+- can backfill current Hermes `state.db` sessions read-only, plus old `session_*.json` transcripts;
 - produces reports and dry-run proposals before edits;
 - optionally uses Qwen embeddings + bge reranking for mixed-language candidate ordering;
 - supports guarded apply with SHA checks, backups, validation, and rollback;
@@ -122,7 +122,7 @@ Because the failure mode is too broad. This plugin separates evidence collection
 
 ### What is stored?
 
-A local SQLite database with compact evidence about sessions, tool calls, skill usage, and session completions. It can also import old Hermes `session_*.json` files. It does not require a remote service.
+A local SQLite database with compact evidence about sessions, tool calls, skill usage, and session completions. It can read the current Hermes `state.db` through a read-only API and can also import old `session_*.json` files. It does not require a remote service.
 
 ### Does it download models?
 

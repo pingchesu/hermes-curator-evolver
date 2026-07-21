@@ -48,7 +48,7 @@ Useful non-mutating checks:
 hermes-curator-evolver status
 hermes-curator-evolver report --days 7 --format json
 hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --format json
-hermes-curator-evolver backfill-sessions --sessions-dir ~/.hermes/sessions --days 7 --limit 10 --format json
+hermes-curator-evolver backfill-sessions --days 7 --limit 10 --format json
 ```
 
 For scheduler install tests, use an isolated config/home root unless you intentionally want to mutate your real user scheduler. Linux/systemd tests can isolate `XDG_CONFIG_HOME`; macOS/launchd tests should monkeypatch `HOME` so LaunchAgent files land under a temp `~/Library/LaunchAgents`:

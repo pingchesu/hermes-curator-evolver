@@ -15,6 +15,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .paths import hermes_home
+
 try:
     import yaml
 except ImportError:  # pragma: no cover - PyYAML is present in Hermes envs.
@@ -58,11 +60,7 @@ def default_hermes_home(skills_dir: str | Path | None = None) -> Path:
         if candidate.name == "skills":
             return candidate.parent
 
-    env_home = os.environ.get("HERMES_HOME")
-    if env_home:
-        return Path(os.path.expanduser(os.path.expandvars(env_home))).resolve()
-
-    return (Path.home() / ".hermes").resolve()
+    return hermes_home().resolve()
 
 
 def _read_bundled_manifest_names(local_skills_dir: Path) -> frozenset[str]:

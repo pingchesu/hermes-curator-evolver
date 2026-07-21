@@ -90,6 +90,8 @@ hermes-curator-evolver bootstrap
 
 That is the default, model-free path. It writes only low-risk bounded notes to **local agent-created** skills, spills bulky evidence into `references/` when needed, then validates the changed `SKILL.md` before the apply is considered successful. Official/bundled, hub-installed, plugin-provided, `skills.external_dirs`, pinned, unknown-source, and already-over-hard-cap skills are skipped.
 
+Path discovery follows Hermes' active, profile-aware home (`get_hermes_home()` / `HERMES_HOME`). On Windows this means `%LOCALAPPDATA%\hermes`, not `~\.hermes`. Historical backfill reads the current `<HERMES_HOME>/state.db` through Hermes' read-only `SessionDB` API; legacy `session_*.json` imports remain available with `--sessions-dir`. Debug-only `request_dump_*.json` files are intentionally not treated as durable transcripts.
+
 Want multilingual semantic/rerank ordering? Make the opt-in explicit:
 
 ```bash
@@ -310,7 +312,9 @@ hermes-curator-evolver bootstrap --format json
 # Evidence
 hermes-curator-evolver status
 hermes-curator-evolver report --days 7 --format json
-hermes-curator-evolver backfill-sessions --sessions-dir ~/.hermes/sessions --days 30 --format json
+hermes-curator-evolver backfill-sessions --days 30 --format json
+hermes-curator-evolver backfill-sessions --state-db /path/to/state.db --days 30 --format json
+hermes-curator-evolver backfill-sessions --sessions-dir /path/to/legacy/sessions --days 30 --format json
 hermes-curator-evolver analyze --skill hermes-agent --days 30
 
 # Proposal + verifier

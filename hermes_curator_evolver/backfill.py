@@ -1,22 +1,37 @@
-"""Import historical Hermes session files into the evidence store."""
+"""Import historical Hermes sessions into the curator evidence store."""
 
 from __future__ import annotations
 
+import importlib
 import json
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
+from .paths import hermes_home
 from .storage import EvidenceStore, _compact
 
 
 def default_sessions_dir() -> Path:
-    return Path.home() / ".hermes" / "sessions"
+    """Return the legacy JSON transcript directory under the active Hermes home."""
+
+    return hermes_home() / "sessions"
+
+
+def default_state_db_path() -> Path:
+    """Return the current Hermes session database under the active Hermes home."""
+
+    return hermes_home() / "state.db"
 
 
 def _parse_dt(value: Any) -> datetime | None:
-    if not value:
+    if value is None or value == "":
         return None
+    if isinstance(value, (int, float)):
+        try:
+            return datetime.fromtimestamp(float(value), timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
     text = str(value).strip()
     if not text:
         return None
@@ -137,27 +152,179 @@ def _iter_session_files(sessions_dir: Path, limit: int | None) -> list[Path]:
     return files
 
 
+def _iter_state_sessions(session_db: Any, limit: int | None) -> Iterator[dict[str, Any]]:
+    """Yield current Hermes sessions newest-first through the public SessionDB API."""
+
+    offset = 0
+    emitted = 0
+    page_size = min(limit, 200) if limit is not None and limit > 0 else 200
+    while True:
+        rows = list(session_db.search_sessions(limit=page_size, offset=offset) or [])
+        if not rows:
+            return
+        for row in rows:
+            if limit is not None and limit > 0 and emitted >= limit:
+                return
+            data = dict(row)
+            session_id = str(data.get("id") or data.get("session_id") or "")
+            if not session_id:
+                continue
+            data["messages"] = session_db.get_messages(session_id)
+            emitted += 1
+            yield data
+        if len(rows) < page_size:
+            return
+        offset += len(rows)
+
+
+def _session_time(data: dict[str, Any], fallback: datetime | None = None) -> datetime:
+    return (
+        _parse_dt(data.get("last_active"))
+        or _parse_dt(data.get("ended_at"))
+        or _parse_dt(data.get("last_updated"))
+        or _parse_dt(data.get("started_at"))
+        or _parse_dt(data.get("session_start"))
+        or fallback
+        or datetime.now(timezone.utc)
+    )
+
+
+def _import_session_data(
+    data: dict[str, Any],
+    *,
+    evidence: EvidenceStore,
+    result: dict[str, Any],
+    session_dt: datetime,
+    fallback_session_id: str,
+    current_state_session: bool,
+) -> None:
+    session_id = str(data.get("session_id") or data.get("id") or fallback_session_id)
+    model = str(data.get("model") or "")
+    platform = str(data.get("platform") or data.get("source") or "")
+    raw_messages = data.get("messages")
+    messages = [message for message in raw_messages if isinstance(message, dict)] if isinstance(raw_messages, list) else []
+    before = (
+        result["tool_events_imported"],
+        result["turn_events_imported"],
+        result["session_events_imported"],
+    )
+
+    tool_results = _tool_results_by_call_id(messages)
+    for message in messages:
+        raw_calls = message.get("tool_calls")
+        calls = raw_calls if isinstance(raw_calls, list) else []
+        for call_index, call in enumerate(calls):
+            if not isinstance(call, dict):
+                continue
+            tool_name, args = _tool_call_name_and_args(call)
+            if not tool_name:
+                continue
+            call_id = _tool_call_id(call, call_index)
+            task_id = f"backfill:{session_id}:{call_id}"
+            if _tool_event_exists(evidence, session_id=session_id, task_id=task_id, tool_name=tool_name):
+                continue
+            evidence.record_tool_call(
+                tool_name=tool_name,
+                args=args,
+                result=tool_results.get(call_id, ""),
+                task_id=task_id,
+                session_id=session_id,
+                created_at=_iso(_parse_dt(message.get("timestamp")) or session_dt),
+            )
+            result["tool_events_imported"] += 1
+
+    pending_user: str | None = None
+    for message in messages:
+        role = message.get("role")
+        content = _content_text(message.get("content"))
+        if role == "user" and content.strip():
+            pending_user = content
+        elif role == "assistant" and pending_user and content.strip():
+            if not _turn_event_exists(
+                evidence,
+                session_id=session_id,
+                model=model,
+                platform=platform,
+                user_message=pending_user,
+                assistant_response=content,
+            ):
+                evidence.record_turn(
+                    session_id=session_id,
+                    user_message=pending_user,
+                    assistant_response=content,
+                    model=model,
+                    platform=platform,
+                    created_at=_iso(_parse_dt(message.get("timestamp")) or session_dt),
+                )
+                result["turn_events_imported"] += 1
+            pending_user = None
+
+    session_has_ended = not current_state_session or data.get("ended_at") is not None
+    if session_has_ended and not _session_event_exists(evidence, session_id=session_id):
+        interrupted = str(data.get("end_reason") or "").casefold() in {
+            "cancelled",
+            "error",
+            "interrupted",
+            "timeout",
+        }
+        evidence.record_session_end(
+            session_id=session_id,
+            completed=not interrupted,
+            interrupted=interrupted,
+            model=model,
+            platform=platform,
+            created_at=_iso(
+                _parse_dt(data.get("ended_at"))
+                or _parse_dt(data.get("last_updated"))
+                or session_dt
+            ),
+        )
+        result["session_events_imported"] += 1
+
+    after = (
+        result["tool_events_imported"],
+        result["turn_events_imported"],
+        result["session_events_imported"],
+    )
+    if after != before:
+        result["sessions_imported"] += 1
+
+
 def backfill_sessions(
     *,
     sessions_dir: str | Path | None = None,
+    state_db: str | Path | None = None,
     store: EvidenceStore | None = None,
     days: int = 30,
     limit: int | None = None,
 ) -> dict[str, Any]:
-    """Backfill evidence from existing Hermes `session_*.json` transcripts.
+    """Backfill evidence from current Hermes ``state.db`` or legacy JSON dumps.
 
-    The importer is conservative: it records observable turns, session end markers,
-    and tool calls with parseable `tool_calls`. Re-running it is duplicate-safe for
-    the same session/tool/turn signatures.
+    With no source override, the importer prefers the active Hermes profile's
+    read-only ``state.db`` and falls back to legacy ``session_*.json`` files only
+    when that database does not exist. ``request_dump_*.json`` files are debug
+    request snapshots, not the durable session transcript contract, and are
+    intentionally ignored.
     """
 
-    target_dir = Path(sessions_dir) if sessions_dir is not None else default_sessions_dir()
+    if sessions_dir is not None and state_db is not None:
+        raise ValueError("sessions_dir and state_db are mutually exclusive")
+
     evidence = store or EvidenceStore()
-    cutoff = datetime.now(timezone.utc) - timedelta(days=max(int(days or 1), 1))
+    bounded_days = max(int(days or 1), 1)
+    cutoff = datetime.now(timezone.utc) - timedelta(days=bounded_days)
+    legacy_dir = Path(sessions_dir).expanduser() if sessions_dir is not None else default_sessions_dir()
+    state_path = Path(state_db).expanduser() if state_db is not None else default_state_db_path()
+    use_state_db = sessions_dir is None and (state_db is not None or state_path.exists())
+    source_type = "state_db" if use_state_db else "legacy_json"
+    source_path = state_path if use_state_db else legacy_dir
     result: dict[str, Any] = {
-        "sessions_dir": str(target_dir),
+        "source_type": source_type,
+        "source_path": str(source_path),
+        "state_db_path": str(state_path),
+        "sessions_dir": str(legacy_dir),
         "db_path": str(evidence.db_path),
-        "days": max(int(days or 1), 1),
+        "days": bounded_days,
         "limit": limit,
         "sessions_seen": 0,
         "sessions_imported": 0,
@@ -167,11 +334,38 @@ def backfill_sessions(
         "turn_events_imported": 0,
         "session_events_imported": 0,
     }
-    if not target_dir.exists():
+    if not source_path.exists():
         result["missing"] = True
         return result
 
-    for path in _iter_session_files(target_dir, limit):
+    if use_state_db:
+        session_db = None
+        try:
+            SessionDB = getattr(importlib.import_module("hermes_state"), "SessionDB")
+            session_db = SessionDB(db_path=state_path, read_only=True)
+            for data in _iter_state_sessions(session_db, limit):
+                result["sessions_seen"] += 1
+                session_dt = _session_time(data)
+                if session_dt < cutoff:
+                    result["sessions_skipped_old"] += 1
+                    break
+                _import_session_data(
+                    data,
+                    evidence=evidence,
+                    result=result,
+                    session_dt=session_dt,
+                    fallback_session_id="",
+                    current_state_session=True,
+                )
+        except Exception as exc:
+            result["files_failed"] += 1
+            result["source_error"] = f"{type(exc).__name__}: {exc}"
+        finally:
+            if session_db is not None:
+                session_db.close()
+        return result
+
+    for path in _iter_session_files(legacy_dir, limit):
         result["sessions_seen"] += 1
         try:
             data = _load_json(path)
@@ -179,88 +373,17 @@ def backfill_sessions(
             result["files_failed"] += 1
             continue
 
-        session_dt = _parse_dt(data.get("session_start")) or datetime.fromtimestamp(path.stat().st_mtime, timezone.utc)
+        session_dt = _session_time(data, datetime.fromtimestamp(path.stat().st_mtime, timezone.utc))
         if session_dt < cutoff:
             result["sessions_skipped_old"] += 1
             continue
-
-        session_id = str(data.get("session_id") or path.stem.replace("session_", ""))
-        model = str(data.get("model") or "")
-        platform = str(data.get("platform") or "")
-        messages = data.get("messages") if isinstance(data.get("messages"), list) else []
-        messages = [m for m in messages if isinstance(m, dict)]
-        before = (
-            result["tool_events_imported"],
-            result["turn_events_imported"],
-            result["session_events_imported"],
+        _import_session_data(
+            data,
+            evidence=evidence,
+            result=result,
+            session_dt=session_dt,
+            fallback_session_id=path.stem.replace("session_", ""),
+            current_state_session=False,
         )
-
-        tool_results = _tool_results_by_call_id(messages)
-        for index, message in enumerate(messages):
-            calls = message.get("tool_calls") if isinstance(message.get("tool_calls"), list) else []
-            for call_index, call in enumerate(calls):
-                if not isinstance(call, dict):
-                    continue
-                tool_name, args = _tool_call_name_and_args(call)
-                if not tool_name:
-                    continue
-                call_id = _tool_call_id(call, call_index)
-                task_id = f"backfill:{session_id}:{call_id}"
-                if _tool_event_exists(evidence, session_id=session_id, task_id=task_id, tool_name=tool_name):
-                    continue
-                evidence.record_tool_call(
-                    tool_name=tool_name,
-                    args=args,
-                    result=tool_results.get(call_id, ""),
-                    task_id=task_id,
-                    session_id=session_id,
-                    created_at=_iso(session_dt),
-                )
-                result["tool_events_imported"] += 1
-
-        pending_user: str | None = None
-        for message in messages:
-            role = message.get("role")
-            content = _content_text(message.get("content"))
-            if role == "user" and content.strip():
-                pending_user = content
-            elif role == "assistant" and pending_user and content.strip():
-                if not _turn_event_exists(
-                    evidence,
-                    session_id=session_id,
-                    model=model,
-                    platform=platform,
-                    user_message=pending_user,
-                    assistant_response=content,
-                ):
-                    evidence.record_turn(
-                        session_id=session_id,
-                        user_message=pending_user,
-                        assistant_response=content,
-                        model=model,
-                        platform=platform,
-                        created_at=_iso(session_dt),
-                    )
-                    result["turn_events_imported"] += 1
-                pending_user = None
-
-        if not _session_event_exists(evidence, session_id=session_id):
-            evidence.record_session_end(
-                session_id=session_id,
-                completed=True,
-                interrupted=False,
-                model=model,
-                platform=platform,
-                created_at=_iso(_parse_dt(data.get("last_updated")) or session_dt),
-            )
-            result["session_events_imported"] += 1
-
-        after = (
-            result["tool_events_imported"],
-            result["turn_events_imported"],
-            result["session_events_imported"],
-        )
-        if after != before:
-            result["sessions_imported"] += 1
 
     return result

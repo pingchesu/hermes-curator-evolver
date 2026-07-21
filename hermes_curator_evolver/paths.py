@@ -3,9 +3,20 @@
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 PLUGIN_NAME = "curator-evolver"
+
+
+def _platform_default_hermes_home() -> Path:
+    """Mirror Hermes' platform-native fallback when its constants are unavailable."""
+
+    if sys.platform == "win32":
+        local_appdata = os.getenv("LOCALAPPDATA", "").strip()
+        base = Path(local_appdata) if local_appdata else Path.home() / "AppData" / "Local"
+        return base / "hermes"
+    return Path.home() / ".hermes"
 
 
 def hermes_home() -> Path:
@@ -16,7 +27,7 @@ def hermes_home() -> Path:
         env_home = os.getenv("HERMES_HOME")
         if env_home:
             return Path(env_home).expanduser()
-        return Path.home() / ".hermes"
+        return _platform_default_hermes_home()
     return Path(get_hermes_home())
 
 

@@ -227,7 +227,7 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
 
     auto_run = subs.add_parser("auto-run", help="Run one automatic low-risk evolution pass")
     auto_run.add_argument("--days", type=int, default=7, help="Lookback window in days")
-    auto_run.add_argument("--skills-dir", help="Skills root (default: ~/.hermes/skills)")
+    auto_run.add_argument("--skills-dir", help="Skills root (default: active Hermes home/skills)")
     auto_run.add_argument("--backup-dir", help="Backup root for guarded apply")
     auto_run.add_argument("--max-skills", type=int, default=3, help="Max skills to consider")
     auto_run.add_argument("--min-evidence", type=int, default=2, help="Minimum skill evidence count")
@@ -310,8 +310,19 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
         help="One-command setup: backfill sessions and install the auto-run scheduler",
     )
     bootstrap.add_argument("--days", type=int, default=30, help="Historical session backfill window")
-    bootstrap.add_argument("--sessions-dir", help="Hermes sessions directory (default: ~/.hermes/sessions)")
-    bootstrap.add_argument("--skills-dir", help="Skills root for the scheduler command (default: ~/.hermes/skills)")
+    bootstrap_source = bootstrap.add_mutually_exclusive_group()
+    bootstrap_source.add_argument(
+        "--state-db",
+        help="Current Hermes state.db (default when present under the active Hermes home)",
+    )
+    bootstrap_source.add_argument(
+        "--sessions-dir",
+        help="Legacy session_*.json directory (overrides modern state.db discovery)",
+    )
+    bootstrap.add_argument(
+        "--skills-dir",
+        help="Skills root for the scheduler command (default: active Hermes home/skills)",
+    )
     bootstrap.add_argument(
         "--schedule",
         default="daily",
@@ -352,9 +363,17 @@ def setup_cli(subparser: argparse.ArgumentParser) -> None:
     bootstrap.set_defaults(func=handle_cli)
 
     backfill = subs.add_parser("backfill-sessions", help="Import historical Hermes session transcripts into evidence")
-    backfill.add_argument("--sessions-dir", help="Hermes sessions directory (default: ~/.hermes/sessions)")
+    backfill_source = backfill.add_mutually_exclusive_group()
+    backfill_source.add_argument(
+        "--state-db",
+        help="Current Hermes state.db (default when present under the active Hermes home)",
+    )
+    backfill_source.add_argument(
+        "--sessions-dir",
+        help="Legacy session_*.json directory (overrides modern state.db discovery)",
+    )
     backfill.add_argument("--days", type=int, default=30, help="Only import sessions from this many days")
-    backfill.add_argument("--limit", type=int, help="Maximum number of newest session files to inspect")
+    backfill.add_argument("--limit", type=int, help="Maximum number of newest sessions to inspect")
     backfill.add_argument(
         "--format", choices=["text", "json"], default="text", help="Output format"
     )
@@ -440,10 +459,18 @@ def _format_bootstrap_result(result: dict, output_format: str = "text") -> str:
 
     backfill = result["backfill"]
     timer = result["auto_timer"]
+    if backfill.get("source_error"):
+        backfill_line = f"⚠ Backfill source failed: {backfill['source_error']}"
+    elif backfill.get("missing"):
+        backfill_line = f"⚠ Backfill source not found: {backfill.get('source_path')}"
+    else:
+        backfill_line = (
+            f"✓ Backfilled {backfill.get('sessions_imported', 0)} session(s), "
+            f"{backfill.get('tool_events_imported', 0)} tool event(s)"
+        )
     lines = [
         "Hermes Curator Evolver bootstrap",
-        f"✓ Backfilled {backfill.get('sessions_imported', 0)} session(s), "
-        f"{backfill.get('tool_events_imported', 0)} tool event(s)",
+        backfill_line,
         f"✓ Scheduler installed: {timer.get('schedule')} "
         f"({'enabled' if timer.get('enabled') else 'not enabled'})",
         f"✓ Auto-apply policy: {timer.get('auto_apply_policy', 'local-agent-created-skills-only')}",
@@ -460,6 +487,7 @@ def _run_bootstrap(values: dict) -> dict:
     rerank_requested = bool(values.get("semantic") or values.get("rerank_candidates"))
     backfill_result = backfill_sessions(
         sessions_dir=values.get("sessions_dir"),
+        state_db=values.get("state_db"),
         days=_bounded_days(values.get("days"), 30),
         limit=None,
     )
@@ -485,7 +513,7 @@ def _run_bootstrap(values: dict) -> dict:
         "next_steps": [
             "Restart Hermes gateway/CLI if it was already running so plugin hooks are loaded.",
             "Run `hermes-curator-evolver status` to inspect evidence counts.",
-            "Run `hermes-curator-evolver auto-run --skills-dir ~/.hermes/skills --format json` for a dry-run preview.",
+            "Run `hermes-curator-evolver auto-run --format json` for a dry-run preview.",
         ],
     }
 
@@ -779,6 +807,7 @@ def handle_cli(args: argparse.Namespace) -> None:
     if command == "backfill-sessions":
         result = backfill_sessions(
             sessions_dir=values.get("sessions_dir"),
+            state_db=values.get("state_db"),
             days=_bounded_days(values.get("days"), 30),
             limit=values.get("limit"),
         )
@@ -786,7 +815,7 @@ def handle_cli(args: argparse.Namespace) -> None:
             print(json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True))
         else:
             print("Hermes Curator Evolver session backfill")
-            print(f"Sessions dir: {result['sessions_dir']}")
+            print(f"Source: {result['source_type']} ({result['source_path']})")
             print(f"DB: {result['db_path']}")
             print(f"Sessions seen: {result['sessions_seen']}")
             print(f"Sessions imported: {result['sessions_imported']}")
@@ -795,6 +824,10 @@ def handle_cli(args: argparse.Namespace) -> None:
             print(f"Tool events imported: {result['tool_events_imported']}")
             print(f"Turn events imported: {result['turn_events_imported']}")
             print(f"Session events imported: {result['session_events_imported']}")
+            if result.get("missing"):
+                print(f"Source missing: {result['source_path']}")
+            if result.get("source_error"):
+                print(f"Source error: {result['source_error']}")
         return
 
     if command == "install-auto":

@@ -22,6 +22,8 @@ from typing import Any
 
 import yaml
 
+from .paths import hermes_home
+
 from .guarded_apply import (
     apply_guarded_patch,
     register_support_file_in_manifest,
@@ -151,15 +153,15 @@ _GUIDANCE_BULLETS: dict[str, tuple[str, ...]] = {
 
 
 def _default_skills_dir() -> Path:
-    return Path.home() / ".hermes" / "skills"
+    return hermes_home() / "skills"
 
 
 def _default_hermes_config_path() -> Path:
-    return Path.home() / ".hermes" / "config.yaml"
+    return hermes_home() / "config.yaml"
 
 
 def _default_backup_dir() -> Path:
-    return Path.home() / ".hermes" / "plugins" / "curator-evolver" / "backups"
+    return hermes_home() / "plugins" / "curator-evolver" / "backups"
 
 
 def _bounded(value: int, *, minimum: int, maximum: int) -> int:
@@ -1163,7 +1165,7 @@ def _write_launchd_plist(plist_path: Path, *, args: list[str], schedule: str) ->
     """Write a macOS LaunchAgent plist and return the canonical schedule."""
 
     canonical_schedule, schedule_block = _launchd_schedule_block(schedule)
-    log_dir = Path.home() / ".hermes" / "plugins" / "curator-evolver" / "logs"
+    log_dir = hermes_home() / "plugins" / "curator-evolver" / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     plist_path.parent.mkdir(parents=True, exist_ok=True)
     program_arguments = "\n".join(f"    <string>{html.escape(str(arg))}</string>" for arg in args)

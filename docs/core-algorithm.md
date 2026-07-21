@@ -9,7 +9,7 @@ For the clean-room rationale on **why HyperAgents is not a runtime dependency**,
 | Path | Uses embedding? | Uses reranker? | Can write skills? | Purpose |
 | --- | --- | --- | --- | --- |
 | `bootstrap` | No by default; yes with `--semantic` | No by default; yes with `--semantic` | Installs the timer; the timer can write only low-risk local-agent-created skill notes | One-command setup: backfill sessions + install/enable autorun. |
-| `backfill-sessions` | No | No | No | Import existing Hermes `session_*.json` transcripts into evidence.sqlite so prior history can inform reports/autorun. |
+| `backfill-sessions` | No | No | No | Read current Hermes `state.db` sessions or explicit legacy `session_*.json` transcripts into evidence.sqlite so prior history can inform reports/autorun. |
 | `auto-run` / `install-auto` default | No | No | Yes, only bounded low-risk blocks for local agent-created skills when explicitly enabled | Safe automatic skill improvement with deterministic evidence thresholds, provenance write protection, and size guardrails. |
 | `auto-run --semantic-candidates` | Yes: `Qwen/Qwen3-Embedding-0.6B` | No unless `--rerank-candidates` | Yes, but only after the same write flags and local-agent-created source gate | Model-assisted ordering of evidence-eligible skills. |
 | `auto-run --semantic-candidates --rerank-candidates` | Yes | Yes: `BAAI/bge-reranker-v2-m3` | Yes, but only after the same write flags and local-agent-created source gate | Embedding + reranker ordering of evidence-eligible skills. |
@@ -27,18 +27,19 @@ Semantic execution is runtime-guarded for local machines: texts are truncated fo
 `backfill-sessions` is implemented in `hermes_curator_evolver/backfill.py` and fills the same evidence store used by reports and autorun.
 
 ```text
-1. Read newest `session_*.json` files from `--sessions-dir`.
-2. Keep files inside the `--days` lookback window; optionally stop at `--limit` newest files.
-3. For each session:
-   a. Use `session_id`, `session_start`, `model`, and `platform` from the transcript.
+1. Resolve the active, profile-aware Hermes home and prefer its `state.db`; `--state-db` overrides it, while `--sessions-dir` explicitly selects legacy JSON mode.
+2. Open modern session history with `SessionDB(read_only=True)`, or read newest legacy `session_*.json` files. Debug-only `request_dump_*.json` snapshots are ignored.
+3. Keep sessions inside the `--days` lookback window; optionally stop at `--limit` newest sessions.
+4. For each session:
+   a. Use the session id, timestamps, model, and source/platform fields supplied by Hermes.
    b. Import assistant `tool_calls` with matching `tool` responses when available.
    c. Import user → assistant text turns for compact context evidence.
-   d. Import one session completion marker.
-4. Skip duplicate tool/turn/session signatures so repeated backfill runs are safe.
-5. Return counts; no skills are changed.
+   d. Import one completion marker only for ended modern sessions; legacy exports retain their prior completion behavior.
+5. Skip duplicate tool/turn/session signatures so repeated backfill runs are safe.
+6. Return counts; neither skills nor the Hermes session database are changed.
 ```
 
-Backfill is intentionally model-free. It does not infer missing tool calls from prose; it only records evidence that is present in the Hermes session JSON structure. After backfill, `report` and `auto-run` see the imported historical evidence through normal SQLite queries.
+Backfill is intentionally model-free. It does not infer missing tool calls from prose; it only records evidence exposed by the Hermes session contract. After backfill, `report` and `auto-run` see the imported historical evidence through normal SQLite queries.
 
 ## Current autorun algorithm
 
@@ -46,9 +47,9 @@ Backfill is intentionally model-free. It does not infer missing tool calls from 
 
 ### Inputs
 
-- Evidence DB: `~/.hermes/plugins/curator-evolver/data/evidence.sqlite`
-- Optional historical source: `~/.hermes/sessions/session_*.json` imported with `backfill-sessions`
-- Skills root: default `~/.hermes/skills`
+- Evidence DB: active Hermes `<HERMES_HOME>/plugins/curator-evolver/data/evidence.sqlite`
+- Historical source: active Hermes `<HERMES_HOME>/state.db` by default; legacy `session_*.json` only with `--sessions-dir`
+- Skills root: active Hermes `<HERMES_HOME>/skills`
 - Lookback window: default `--days 7`
 - Optional bootstrap wrapper: `bootstrap`, `bootstrap --semantic`
 - Candidate cap: default `--max-skills 3`

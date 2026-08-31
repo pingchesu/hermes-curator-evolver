@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import inspect
 import json
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -152,12 +153,33 @@ def _iter_session_files(sessions_dir: Path, limit: int | None) -> list[Path]:
     return files
 
 
+def _supports_compacted_history(get_messages: Any) -> bool:
+    """Return whether a Hermes ``get_messages`` callable exposes compacted rows.
+
+    Hermes added ``include_compacted`` in August 2026 so display-history rows
+    archived by in-place compaction remain available to transcript consumers.
+    Detect that capability before passing the keyword so older Hermes releases
+    keep working without masking a ``TypeError`` raised inside ``get_messages``.
+    """
+
+    try:
+        parameters = inspect.signature(get_messages).parameters
+    except (TypeError, ValueError):
+        return False
+    return "include_compacted" in parameters or any(
+        parameter.kind is inspect.Parameter.VAR_KEYWORD
+        for parameter in parameters.values()
+    )
+
+
 def _iter_state_sessions(session_db: Any, limit: int | None) -> Iterator[dict[str, Any]]:
     """Yield current Hermes sessions newest-first through the public SessionDB API."""
 
     offset = 0
     emitted = 0
     page_size = min(limit, 200) if limit is not None and limit > 0 else 200
+    get_messages = session_db.get_messages
+    include_compacted = _supports_compacted_history(get_messages)
     while True:
         rows = list(session_db.search_sessions(limit=page_size, offset=offset) or [])
         if not rows:
@@ -169,7 +191,10 @@ def _iter_state_sessions(session_db: Any, limit: int | None) -> Iterator[dict[st
             session_id = str(data.get("id") or data.get("session_id") or "")
             if not session_id:
                 continue
-            data["messages"] = session_db.get_messages(session_id)
+            if include_compacted:
+                data["messages"] = get_messages(session_id, include_compacted=True)
+            else:
+                data["messages"] = get_messages(session_id)
             emitted += 1
             yield data
         if len(rows) < page_size:

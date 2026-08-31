@@ -28,7 +28,7 @@ Semantic execution is runtime-guarded for local machines: texts are truncated fo
 
 ```text
 1. Resolve the active, profile-aware Hermes home and prefer its `state.db`; `--state-db` overrides it, while `--sessions-dir` explicitly selects legacy JSON mode.
-2. Open modern session history with `SessionDB(read_only=True)`, or read newest legacy `session_*.json` files. Debug-only `request_dump_*.json` snapshots are ignored.
+2. Open modern session history with `SessionDB(read_only=True)` and request compacted durable display history when supported, while retaining the pre-August-2026 `get_messages` compatibility path; or read newest legacy `session_*.json` files. Debug-only `request_dump_*.json` snapshots are ignored.
 3. Keep sessions inside the `--days` lookback window; optionally stop at `--limit` newest sessions.
 4. For each session:
    a. Use the session id, timestamps, model, and source/platform fields supplied by Hermes.

@@ -90,7 +90,7 @@ hermes-curator-evolver bootstrap
 
 That is the default, model-free path. It writes only low-risk bounded notes to **local agent-created** skills, spills bulky evidence into `references/` when needed, then validates the changed `SKILL.md` before the apply is considered successful. Official/bundled, hub-installed, plugin-provided, `skills.external_dirs`, pinned, unknown-source, and already-over-hard-cap skills are skipped.
 
-Path discovery follows Hermes' active, profile-aware home (`get_hermes_home()` / `HERMES_HOME`). On Windows this means `%LOCALAPPDATA%\hermes`, not `~\.hermes`. Historical backfill reads the current `<HERMES_HOME>/state.db` through Hermes' read-only `SessionDB` API; legacy `session_*.json` imports remain available with `--sessions-dir`. Debug-only `request_dump_*.json` files are intentionally not treated as durable transcripts.
+Path discovery follows Hermes' active, profile-aware home (`get_hermes_home()` / `HERMES_HOME`). On Windows this means `%LOCALAPPDATA%\hermes`, not `~\.hermes`. Historical backfill reads the current `<HERMES_HOME>/state.db` through Hermes' read-only `SessionDB` API, including durable display-history rows archived by in-place compaction when the installed Hermes supports that API; legacy `session_*.json` imports remain available with `--sessions-dir`. Debug-only `request_dump_*.json` files are intentionally not treated as durable transcripts.
 
 Want multilingual semantic/rerank ordering? Make the opt-in explicit:
 

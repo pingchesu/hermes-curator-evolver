@@ -122,8 +122,9 @@ def test_backfill_sessions_reads_current_hermes_state_db_read_only(tmp_path, mon
                 }
             ]
 
-        def get_messages(self, session_id):
+        def get_messages(self, session_id, *, include_compacted=False):
             assert session_id == "state-session-test"
+            assert include_compacted is True
             return [
                 {"role": "user", "content": "Use the github PR skill"},
                 {
@@ -226,6 +227,8 @@ def test_backfill_sessions_does_not_mark_live_state_session_complete(tmp_path, m
                 }
             ]
 
+        # Hermes versions before August 2026 do not expose include_compacted.
+        # Backfill must retain this compatibility path.
         def get_messages(self, session_id):
             return [
                 {"role": "user", "content": "Still running", "timestamp": now - 1},

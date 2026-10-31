@@ -84,9 +84,10 @@ Copy, paste, done. `bootstrap` handles the noisy parts: backfill old sessions + 
 
 ```bash
 hermes plugins install pingchesu/hermes-curator-evolver --enable
-uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e ~/.hermes/plugins/curator-evolver
 hermes-curator-evolver bootstrap
 ```
+
+`hermes plugins install` also installs the plugin's Python package into Hermes' own environment, so there is no separate pip step. If `hermes-curator-evolver` is not on your PATH, run it as `hermes --run-module hermes_curator_evolver <command>`.
 
 That is the default, model-free path. It writes only low-risk bounded notes to **local agent-created** skills, spills bulky evidence into `references/` when needed, then validates the changed `SKILL.md` before the apply is considered successful. Official/bundled, hub-installed, plugin-provided, `skills.external_dirs`, pinned, unknown-source, and already-over-hard-cap skills are skipped.
 
@@ -95,7 +96,11 @@ Path discovery follows Hermes' active, profile-aware home (`get_hermes_home()` /
 Want multilingual semantic/rerank ordering? Make the opt-in explicit:
 
 ```bash
-uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e "$HOME/.hermes/plugins/curator-evolver[semantic]"
+# sentence-transformers goes into the environment Hermes runs from; installs/<id>/facts.json names it.
+# A Hermes update or rebuild makes a new environment, so repeat this afterwards.
+# The && stops the install if the lookup fails, so it never lands in some other active venv.
+ENV=$("$(command -v python3 || command -v python)" -c "import glob, json, os; h = os.environ.get('HERMES_HOME') or (os.path.join(os.environ['LOCALAPPDATA'], 'hermes') if os.name == 'nt' else os.path.expanduser('~/.hermes')); f = max(glob.glob(os.path.join(h, 'installs', '*', 'facts.json')), key=os.path.getmtime); print(json.load(open(f))['packages']['venv']['environment'])") &&
+  uv pip install --python "$ENV" "sentence-transformers>=3; sys_platform != 'android'"
 hermes-curator-evolver bootstrap --semantic
 ```
 

@@ -204,7 +204,7 @@ Install optional semantic dependencies only if you want embedding/reranker candi
 # sentence-transformers goes into the environment Hermes runs from; installs/<id>/facts.json names it.
 # A Hermes update or rebuild makes a new environment, so repeat this afterwards.
 # The && stops the install if the lookup fails, so it never lands in some other active venv.
-ENV=$("$(command -v python3 || command -v python)" -c "import glob, json, os; h = os.environ.get('HERMES_HOME') or (os.path.join(os.environ['LOCALAPPDATA'], 'hermes') if os.name == 'nt' else os.path.expanduser('~/.hermes')); f = max(glob.glob(os.path.join(h, 'installs', '*', 'facts.json')), key=os.path.getmtime); print(json.load(open(f))['packages']['venv']['environment'])") &&
+ENV=$("$(command -v python3 || command -v python)" -c "import glob, json, os; h = os.environ.get('HERMES_HOME') or (os.path.join(os.environ.get('LOCALAPPDATA', ''), 'hermes') if os.name == 'nt' else os.path.expanduser('~/.hermes')); f = max(glob.glob(os.path.join(h, 'installs', '*', 'facts.json')), key=os.path.getmtime); print(json.load(open(f))['packages']['venv']['environment'])") &&
   uv pip install --python "$ENV" "sentence-transformers>=3; sys_platform != 'android'"
 # Optional runtime tuning:
 # HERMES_CURATOR_EVOLVER_SEMANTIC_DEVICE=cpu|cuda|auto
@@ -254,8 +254,4 @@ hermes plugins disable curator-evolver
 hermes plugins uninstall curator-evolver
 ```
 
-Remove local evidence/backups only if you want a clean slate:
-
-```bash
-rm -rf ~/.hermes/plugin-data/curator-evolver
-```
+Remove local evidence and backups only if you want a clean slate: delete the `plugin-data/curator-evolver` folder under your Hermes home (`$HERMES_HOME`; by default `~/.hermes` on Linux and macOS, `%LOCALAPPDATA%\hermes` on Windows).

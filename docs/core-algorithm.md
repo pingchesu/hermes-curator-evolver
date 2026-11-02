@@ -206,7 +206,7 @@ Install optional model dependencies first:
 # sentence-transformers goes into the environment Hermes runs from; installs/<id>/facts.json names it.
 # A Hermes update or rebuild makes a new environment, so repeat this afterwards.
 # The && stops the install if the lookup fails, so it never lands in some other active venv.
-ENV=$("$(command -v python3 || command -v python)" -c "import glob, json, os; h = os.environ.get('HERMES_HOME') or (os.path.join(os.environ['LOCALAPPDATA'], 'hermes') if os.name == 'nt' else os.path.expanduser('~/.hermes')); f = max(glob.glob(os.path.join(h, 'installs', '*', 'facts.json')), key=os.path.getmtime); print(json.load(open(f))['packages']['venv']['environment'])") &&
+ENV=$("$(command -v python3 || command -v python)" -c "import glob, json, os; h = os.environ.get('HERMES_HOME') or (os.path.join(os.environ.get('LOCALAPPDATA', ''), 'hermes') if os.name == 'nt' else os.path.expanduser('~/.hermes')); f = max(glob.glob(os.path.join(h, 'installs', '*', 'facts.json')), key=os.path.getmtime); print(json.load(open(f))['packages']['venv']['environment'])") &&
   uv pip install --python "$ENV" "sentence-transformers>=3; sys_platform != 'android'"
 ```
 

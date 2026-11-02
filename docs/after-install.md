@@ -4,11 +4,10 @@ This page is the short operator guide for users who installed `hermes-curator-ev
 
 ## What should be true after quick start
 
-The open-box quick start installs three things:
+The open-box quick start runs two commands:
 
 ```bash
 hermes plugins install pingchesu/hermes-curator-evolver --enable
-uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e ~/.hermes/plugins/curator-evolver
 hermes-curator-evolver bootstrap
 ```
 
@@ -202,7 +201,11 @@ The plugin is designed so the default autorun path does **not** require a model.
 Install optional semantic dependencies only if you want embedding/reranker candidate search:
 
 ```bash
-uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e "$HOME/.hermes/plugins/curator-evolver[semantic]"
+# sentence-transformers goes into the environment Hermes runs from; installs/<id>/facts.json names it.
+# A Hermes update or rebuild makes a new environment, so repeat this afterwards.
+# The && stops the install if the lookup fails, so it never lands in some other active venv.
+ENV=$("$(command -v python3 || command -v python)" -c "import glob, json, os; h = os.environ.get('HERMES_HOME') or (os.path.join(os.environ.get('LOCALAPPDATA') or os.path.expanduser('~/AppData/Local'), 'hermes') if os.name == 'nt' else os.path.expanduser('~/.hermes')); f = max(glob.glob(os.path.join(h, 'installs', '*', 'facts.json')), key=os.path.getmtime); print(json.load(open(f))['packages']['venv']['environment'])") &&
+  uv pip install --python "$ENV" "sentence-transformers>=3; sys_platform != 'android'"
 # Optional runtime tuning:
 # HERMES_CURATOR_EVOLVER_SEMANTIC_DEVICE=cpu|cuda|auto
 # HERMES_CURATOR_EVOLVER_SEMANTIC_TEXT_LIMIT=512
@@ -251,8 +254,4 @@ hermes plugins disable curator-evolver
 hermes plugins uninstall curator-evolver
 ```
 
-Remove local evidence/backups only if you want a clean slate:
-
-```bash
-rm -rf ~/.hermes/plugin-data/curator-evolver
-```
+Remove local evidence and backups only if you want a clean slate: delete the `plugin-data/curator-evolver` folder under your Hermes home (`$HERMES_HOME`; by default `~/.hermes` on Linux and macOS, `%LOCALAPPDATA%\hermes` on Windows).

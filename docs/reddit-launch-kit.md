@@ -67,7 +67,6 @@ Quick start:
 
 ```bash
 hermes plugins install pingchesu/hermes-curator-evolver --enable
-uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e ~/.hermes/plugins/curator-evolver
 hermes-curator-evolver bootstrap
 ```
 

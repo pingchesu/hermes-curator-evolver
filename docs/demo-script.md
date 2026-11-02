@@ -6,7 +6,6 @@ Use this as a terminal walkthrough, GIF script, or asciinema storyboard. The fir
 
 ```bash
 hermes plugins install pingchesu/hermes-curator-evolver --enable
-uv pip install --python ~/.hermes/hermes-agent/venv/bin/python -e ~/.hermes/plugins/curator-evolver
 hermes-curator-evolver bootstrap
 ```
 

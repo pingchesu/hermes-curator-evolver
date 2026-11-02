@@ -37,7 +37,7 @@ Documentation = "https://github.com/pingchesu/hermes-curator-evolver/tree/main/d
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
-semantic = ["sentence-transformers>=3"]
+semantic = ["sentence-transformers>=3; sys_platform != 'android'"]
 
 [project.scripts]
 hermes-curator-evolver = "hermes_curator_evolver.__main__:main"

@@ -99,7 +99,7 @@ Want multilingual semantic/rerank ordering? Make the opt-in explicit:
 # sentence-transformers goes into the environment Hermes runs from; installs/<id>/facts.json names it.
 # A Hermes update or rebuild makes a new environment, so repeat this afterwards.
 # The && stops the install if the lookup fails, so it never lands in some other active venv.
-ENV=$("$(command -v python3 || command -v python)" -c "import glob, json, os; h = os.environ.get('HERMES_HOME') or (os.path.join(os.environ.get('LOCALAPPDATA', ''), 'hermes') if os.name == 'nt' else os.path.expanduser('~/.hermes')); f = max(glob.glob(os.path.join(h, 'installs', '*', 'facts.json')), key=os.path.getmtime); print(json.load(open(f))['packages']['venv']['environment'])") &&
+ENV=$("$(command -v python3 || command -v python)" -c "import glob, json, os; h = os.environ.get('HERMES_HOME') or (os.path.join(os.environ.get('LOCALAPPDATA') or os.path.expanduser('~/AppData/Local'), 'hermes') if os.name == 'nt' else os.path.expanduser('~/.hermes')); f = max(glob.glob(os.path.join(h, 'installs', '*', 'facts.json')), key=os.path.getmtime); print(json.load(open(f))['packages']['venv']['environment'])") &&
   uv pip install --python "$ENV" "sentence-transformers>=3; sys_platform != 'android'"
 hermes-curator-evolver bootstrap --semantic
 ```
@@ -406,19 +406,25 @@ to retrieve a JSON evidence report.
 
 ## Install from source
 
-Point `hermes plugins install` at the repository, a fork, or a local checkout. Hermes clones it into its plugin folder and builds the package into its own environment, so there is no pip step. Every Hermes update or rebuild makes a new environment and installs the plugin into it again; a package installed with `pip install` would not be carried over.
+Point `hermes plugins install` at the repository (or your fork's URL), or at a local checkout. Hermes clones it into its plugin folder and builds the package into its own environment, so there is no pip step. Every Hermes update or rebuild makes a new environment and installs the plugin into it again; a package installed with `pip install` would not be carried over.
 
 ```bash
-hermes plugins install https://github.com/<you>/hermes-curator-evolver.git --enable
-# A local checkout: Hermes installs its committed state, not uncommitted edits.
-hermes plugins install file:///path/to/hermes-curator-evolver --enable
+hermes plugins install https://github.com/pingchesu/hermes-curator-evolver.git --enable
+```
+
+From a local checkout (Hermes installs its committed state, not uncommitted edits):
+
+```bash
+git clone https://github.com/pingchesu/hermes-curator-evolver.git
+hermes plugins install "file://$PWD/hermes-curator-evolver" --enable
+# On Windows, use a drive path: file:///C:/src/hermes-curator-evolver
 ```
 
 To pin one commit, add `--ref <40-character commit SHA>`.
 
 ## Directory-plugin install
 
-You can also symlink this repository into the Hermes plugin directory:
+You can also symlink this repository into the Hermes plugin directory, `plugins` under your Hermes home (`$HERMES_HOME`; by default `~/.hermes` on Linux and macOS, `%LOCALAPPDATA%\hermes` on Windows). On Linux and macOS:
 
 ```bash
 mkdir -p ~/.hermes/plugins
